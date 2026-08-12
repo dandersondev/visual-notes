@@ -77,6 +77,10 @@ export class VisualNotesSettingsTab extends PluginSettingTab {
         render: (s) => this.buildDefaultBoard(s) },
       { name: 'Default folder for new boards', desc: 'Folder pre-selected as the location when you create a board. Creating a board inside a folder you right-clicked still uses that folder.',
         render: (s) => this.buildDefaultNewBoardFolder(s) },
+      { name: 'Mark Visual Notes boards in the file explorer', desc: 'Tags .canvas files that are Visual Notes boards as VISUAL rather than CANVAS, so they can be told apart from Obsidian’s own canvases at a glance. Purely visual — nothing about the files changes.',
+        render: (s) => this.buildExplorerBoardTint(s) },
+      { name: 'Light/dark button on boards', desc: 'Adds a sun/moon button to the bottom-right of every board that switches Obsidian between light and dark mode. This changes Obsidian’s own Appearance setting, not just the board. Takes effect when you next open a board.',
+        render: (s) => this.buildAppearanceButton(s) },
       { type: 'group', heading: 'Freeform canvas', items: [
         { name: 'Pan the canvas with', desc: 'Which mouse button drags the freeform canvas around. Space+left-click always works no matter what you pick here. Takes effect when you next open a board.',
           render: (s) => this.buildPanButton(s) },
@@ -166,6 +170,8 @@ export class VisualNotesSettingsTab extends PluginSettingTab {
     this.buildOpenOnStartup(new Setting(containerEl));
     this.buildDefaultBoard(new Setting(containerEl));
     this.buildDefaultNewBoardFolder(new Setting(containerEl));
+    this.buildExplorerBoardTint(new Setting(containerEl));
+    this.buildAppearanceButton(new Setting(containerEl));
 
     new Setting(containerEl).setName('Freeform canvas').setHeading();
     this.buildPanButton(new Setting(containerEl));
@@ -320,6 +326,31 @@ export class VisualNotesSettingsTab extends PluginSettingTab {
         })(); })
       );
     }
+  }
+
+  private buildAppearanceButton(setting: Setting): void {
+    setting
+      .setName('Light/dark button on boards')
+      .setDesc('Adds a sun/moon button to the bottom-right of every board that switches Obsidian between light and dark mode. This changes Obsidian’s own Appearance setting, not just the board. Takes effect when you next open a board.')
+      .addToggle(t =>
+        t.setValue(this.plugin.settings.appearanceButton !== false).onChange((v) => { void (async () => {
+          this.plugin.settings.appearanceButton = v;
+          await this.plugin.saveSettings();
+        })(); })
+      );
+  }
+
+  private buildExplorerBoardTint(setting: Setting): void {
+    setting
+      .setName('Mark Visual Notes boards in the file explorer')
+      .setDesc('Tags .canvas files that are Visual Notes boards as VISUAL rather than CANVAS, so they can be told apart from Obsidian’s own canvases at a glance. Purely visual — nothing about the files changes.')
+      .addToggle(t =>
+        t.setValue(this.plugin.settings.explorerBoardTint !== false).onChange((v) => { void (async () => {
+          this.plugin.settings.explorerBoardTint = v;
+          await this.plugin.saveSettings();
+          this.plugin.applyExplorerTintSetting();
+        })(); })
+      );
   }
 
   private buildClipAutoImport(setting: Setting): void {

@@ -221,6 +221,7 @@ const DEFAULT_SIZE: Record<Card['kind'], { w: number; h: number }> = {
   'table': { w: 320, h: 220 },
   'image': { w: 320, h: 240 },
   'audio': { w: 280, h: 100 },
+  'video': { w: 320, h: 180 },
   'note-link': { w: 300, h: 200 },
   'bookmark': { w: 320, h: 160 },
   'kanban-column': { w: 280, h: 400 },
@@ -333,6 +334,15 @@ function cardToNodes(card: Card): CanvasNode[] {
     case 'audio': {
       const a = card;
       return [{ ...base, type: 'file', file: a.source.path, vn: stashable(a) }];
+    }
+
+    // A plain file node, exactly as audio and images are — which means
+    // Obsidian's own Canvas renders this same node as a video player too. The
+    // board stays something both viewers understand rather than becoming
+    // ours-only, which is the whole reason this plugin builds on the format.
+    case 'video': {
+      const v = card;
+      return [{ ...base, type: 'file', file: v.source.path, vn: stashable(v) }];
     }
 
     case 'note-link': {

@@ -162,7 +162,9 @@ export class Component {
 
 class MenuItemStub {
   private clickHandler: (() => void) | null = null;
-  setTitle(_t: string): this { return this; }
+  /** test-only: the real API discards this, but tests need to find an item by name */
+  title = '';
+  setTitle(t: string): this { this.title = t; return this; }
   setIcon(_i: string | null): this { return this; }
   setIsLabel(_v: boolean): this { return this; }
   setChecked(_v: boolean | null): this { return this; }

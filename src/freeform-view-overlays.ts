@@ -3,7 +3,7 @@ import {
 } from 'obsidian';
 import { TouchActionSheet } from './touch-action-sheet';
 import {
-  ChecklistCard, ChecklistItem, STICKY_FONT_FAMILIES,
+  ChecklistCard, ChecklistItem, VideoCard, STICKY_FONT_FAMILIES,
 } from './file-types';
 import {
   parseYouTubeId,
@@ -11,6 +11,7 @@ import {
 } from './thumbnail-utils';
 import { nearestColorName, randomNamedColor, COLOR_PALETTES } from './named-colors';
 import { contrastColor, isHexColor, isDarkTheme } from './color-utils';
+import { applyColorScheme, otherScheme, schemeOf } from './theme-scheme';
 import { TileModal } from './tile-modal';
 import { LabelPromptModal, ReactionPickerModal } from './card-badges';
 import {
@@ -30,7 +31,7 @@ import {
   KANBAN_COLORS,
   applyStickyTextScale,
   SupportedCard,
-  NoteLinkPickerModal, VaultImagePickerModal, VaultAudioPickerModal, VaultAnyFilePickerModal,
+  NoteLinkPickerModal, VaultImagePickerModal, VaultAudioPickerModal, VaultAnyFilePickerModal, VIDEO_EXTS,
   CalloutIconPickerModal, QuickAddEntry,
   QuickAddModal,
   KanbanItemColorModal, WipLimitModal, BookmarkInputModal,
@@ -51,6 +52,8 @@ declare module './freeform-view' {
     closeFab(): void;
     showAccentColorPopover(cardEl: HTMLElement, card: ChecklistCard): void;
     renderZoomPill(): void;
+    renderAppearanceButton(): void;
+    refreshAppearanceButton(): void;
     boardIsDark(): boolean;
     renderMinimap(): void;
     computeBoardBBox(): { minX: number; minY: number; maxX: number; maxY: number } | null;
@@ -333,6 +336,28 @@ export const overlaysMethods = {
     }
 
     if (card.kind === 'file') {
+      // Boards built before video cards existed are full of file cards
+      // pointing at videos, and nothing would ever upgrade them on its own —
+      // rewriting them at load would edit the user's file behind their back
+      // for a purely cosmetic gain. Offering it per card is explicit, and
+      // undo puts it straight back.
+      if (VIDEO_EXTS.includes(card.path.split('.').pop()?.toLowerCase() ?? '')) {
+        menu.addItem(i => i.setTitle('Play on canvas').setIcon('file-video').onClick(() => {
+          this.pushUndo();
+          const video: VideoCard = {
+            id: card.id, kind: 'video',
+            x: card.x, y: card.y, w: card.w, h: card.h, z: card.z,
+            source: { type: 'vault', path: card.path },
+          };
+          const i = this.board.cards.findIndex(c => c.id === card.id);
+          if (i === -1) return;
+          this.board.cards[i] = video;
+          this.rebuildCards();
+          this.selection.select(video.id);
+          this.refreshSelectionVisuals();
+          this.scheduleSave();
+        }));
+      }
       menu.addItem(i => i.setTitle('Open').setIcon('external-link').onClick(() => {
         void this.openFileCard(card);
       }));
@@ -726,6 +751,7 @@ export const overlaysMethods = {
     };
     mkOv('Image',     'image',     'image');
     mkOv('Audio',     'music',     'audio');
+    mkOv('Video',     'file-video', 'video');
     mkOv('Note Link', 'file-text', 'notelink');
     mkOv('Comment',   'message-square', 'comment');
     mkOv('Table',     'table',     'table');
@@ -850,6 +876,43 @@ export const overlaysMethods = {
     setIcon(this.snapToggleBtn, 'magnet');
     this.snapToggleBtn.toggleClass('is-active', this.snapToGridEnabled);
     this.snapToggleBtn.addEventListener('click', () => this.toggleSnapToGrid());
+  },
+
+  // Continues the bottom-right row leftward from the snap toggle. Unlike
+  // everything else in that corner this reaches outside the board entirely,
+  // changing Obsidian's own Appearance setting — hence the setting that
+  // hides it, and the wording of the tooltip, which says "Obsidian" rather
+  // than leaving the user to guess how far the switch reaches.
+  renderAppearanceButton(this: FreeformRenderer): void {
+    if (!this.appearanceButtonEnabled) return;
+    const btn = this.appearanceBtn = this.container.createDiv('visual-notes-appearance-btn');
+    btn.addEventListener('click', () => {
+      const target = otherScheme(schemeOf(isDarkTheme()));
+      if (!applyColorScheme(this.app, target)) {
+        new Notice(
+          'Visual Notes: this version of Obsidian doesn’t let plugins change the colour scheme. ' +
+          'Settings → Appearance → Base color scheme still works.',
+          8000,
+        );
+      }
+      // Deliberately no icon update here. The button follows the theme, not
+      // the click — refreshAppearanceButton runs on the workspace's css-change
+      // event, so it can never end up showing a switch that didn't happen.
+    });
+    this.refreshAppearanceButton();
+  },
+
+  refreshAppearanceButton(this: FreeformRenderer): void {
+    const btn = this.appearanceBtn;
+    if (!btn) return;
+    // Shows where the button goes, not where you are — a sun means "make it
+    // light". The tooltip removes any doubt about which reading is intended.
+    const target = otherScheme(schemeOf(isDarkTheme()));
+    const label = target === 'dark' ? 'Switch Obsidian to dark mode' : 'Switch Obsidian to light mode';
+    btn.empty();
+    setIcon(btn, target === 'dark' ? 'moon' : 'sun');
+    setTooltip(btn, label);
+    btn.setAttribute('aria-label', label);
   },
 
   renderMinimap(this: FreeformRenderer): void {
@@ -1116,6 +1179,7 @@ export const overlaysMethods = {
       case 'note-link': parts.push(card.path); break;
       case 'image': parts.push(card.caption ?? '', card.source.type === 'vault' ? card.source.path : card.source.url); break;
       case 'audio': parts.push(card.source.path); break;
+      case 'video': parts.push(card.source.path); break;
       case 'bookmark': parts.push(card.title ?? '', card.description ?? '', card.url); break;
       case 'kanban-column':
         parts.push(card.title ?? '');
@@ -1355,6 +1419,7 @@ export const overlaysMethods = {
       { label: 'Group frame',     tool: 'group' },
       { label: 'Image',           tool: 'image' },
       { label: 'Audio',           tool: 'audio' },
+      { label: 'Video',           tool: 'video' },
       { label: 'Link / bookmark', tool: 'bookmark' },
       { label: 'Note link',       tool: 'notelink' },
       { label: 'Comment',         tool: 'comment' },

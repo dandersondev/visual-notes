@@ -242,6 +242,7 @@ export class VisualNotesView extends FileView {
         { ...DEFAULT_PEN_DRAW_OPTIONS, ...this.plugin.settings.penDrawOptions },
         (value) => { this.plugin.settings.penDrawOptions = value; void this.plugin.saveSettings(); },
         this.plugin.settings.panButton ?? 'middle',
+        this.plugin.settings.appearanceButton !== false,
       );
     } else {
       this.renderer = new GridRenderer(

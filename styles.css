@@ -1662,7 +1662,14 @@ path.is-marquee-selected {
   border-color: var(--interactive-accent);
 }
 
-.visual-notes-snap-toggle-btn {
+/* The bottom-right row, right to left: zoom pill (16px), snap toggle (80px),
+   light/dark toggle (116px = 80 + the 28px button + an 8px gap). Fixed
+   offsets rather than a flex row because the zoom pill's width changes with
+   the percentage it shows ("100%" vs "12.5%"), so anything laid out from the
+   corner inward would shift as you zoom. The minimap stacks above this row
+   at bottom: 56px and assumes it stays one row tall. */
+.visual-notes-snap-toggle-btn,
+.visual-notes-appearance-btn {
   position: absolute;
   bottom: 16px;
   right: 80px;
@@ -1681,9 +1688,19 @@ path.is-marquee-selected {
   transition: color 80ms ease, border-color 80ms ease, background 80ms ease;
 }
 
-.visual-notes-snap-toggle-btn:hover {
+.visual-notes-appearance-btn {
+  right: 116px;
+}
+
+.visual-notes-snap-toggle-btn:hover,
+.visual-notes-appearance-btn:hover {
   color: var(--interactive-accent);
   border-color: var(--interactive-accent);
+}
+
+.visual-notes-appearance-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .visual-notes-snap-toggle-btn.is-active {
@@ -4655,6 +4672,90 @@ input.visual-notes-accent-pop-hex {
   font-size: calc(12px * var(--vn-text-mult, 1));
   color: var(--text-faint);
   font-style: italic;
+}
+
+/* ── Video card ─────────────────────────────────────────────── */
+/* Chrome-free, like the image card rather than the audio one: on a moodboard
+   the picture is the point, and a filename header would cost ~35px of every
+   card. The filename lives in the card's title attribute and its context menu
+   instead. A dark ground so letterboxing (before loadedmetadata corrects the
+   card's aspect ratio) reads as intentional rather than as a gap. */
+.visual-notes-freeform-video-card {
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--background-modifier-border);
+  gap: 0;
+}
+
+.visual-notes-video-player {
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* contain, not cover: cropping someone's footage to fit a box is a worse
+     default than showing all of it. */
+  object-fit: contain;
+  background: #000;
+}
+
+.visual-notes-video-missing {
+  padding: 8px 12px;
+  font-size: calc(12px * var(--vn-text-mult, 1));
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* Shown when the <video> element reports it can't decode the file — mkv and
+   avi usually, mov depending on its codec. Reverts to the card's normal
+   surface, since there is no longer any video for a black ground to flatter. */
+.visual-notes-freeform-video-card.is-unplayable {
+  background: var(--visual-notes-card-bg);
+}
+
+.visual-notes-video-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 100%;
+  padding: 10px;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.visual-notes-video-fallback-icon {
+  color: var(--text-faint);
+}
+
+.visual-notes-video-fallback-name {
+  font-size: calc(12px * var(--vn-text-mult, 1));
+  font-weight: 600;
+  color: var(--text-normal);
+  overflow-wrap: break-word;
+  max-width: 100%;
+}
+
+.visual-notes-video-fallback-msg {
+  font-size: calc(11px * var(--vn-text-mult, 1));
+  color: var(--text-muted);
+}
+
+.visual-notes-video-fallback-btn {
+  margin-top: 2px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: calc(11px * var(--vn-text-mult, 1));
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+  cursor: pointer;
+}
+
+.visual-notes-video-fallback-btn:hover {
+  background: var(--interactive-accent-hover);
 }
 
 /* ── Bookmark card ──────────────────────────────────────────── */
@@ -7659,4 +7760,111 @@ input.visual-notes-calendar-month-input {
 
 .visual-notes-ctx-toggle.is-on .visual-notes-ctx-toggle-knob {
   transform: translateX(12px);
+}
+
+/* ── File explorer: Visual Notes boards ──────────────────────────
+   A .canvas file that is a Visual Notes board is, to Obsidian, an ordinary
+   canvas — same icon, same CANVAS tag — which is exactly right, and the
+   reason the plugin builds on the format instead of inventing one. This
+   relabels and recolours the tag on those rows, so they read apart at a
+   glance without anything moving or being replaced.
+
+   Applied by src/explorer-decor.ts, which adds the class. If Obsidian's
+   markup ever changes and the class stops landing, nothing here applies and
+   the explorer looks precisely as it did before — the failure mode is
+   "no tint", never a broken row.
+
+   Use an explicit Visual Notes blue rather than an Obsidian semantic colour
+   variable. Themes are free to remap variables such as --color-purple (some
+   map it to the same orange used by native Canvas), which defeats the whole
+   purpose of distinguishing the two file types. Separate light/dark values
+   keep the tag and icon readable without inheriting the theme's Canvas tint. */
+.nav-file-title.visual-notes-explorer-board {
+  --vn-explorer-board-tint: #2563eb;
+  --vn-explorer-board-pill: #dbeafe;
+}
+
+.tree-item-self.visual-notes-explorer-board {
+  --vn-explorer-board-tint: #2563eb;
+  --vn-explorer-board-pill: #dbeafe;
+}
+
+.theme-dark .nav-file-title.visual-notes-explorer-board,
+.theme-dark .tree-item-self.visual-notes-explorer-board {
+  --vn-explorer-board-tint: #93c5fd;
+  --vn-explorer-board-pill: #1e3a5f;
+}
+
+/* The CANVAS tag is the reliable target: Obsidian draws one for every
+   non-markdown file, in the same place in every theme. Icons are not a
+   target at all — vanilla Obsidian draws none, and themes that add them each
+   pick a different mechanism (Blue Topaz masks a data-URI onto
+   .nav-file-title-content::before, which is neither an <svg> nor a
+   .nav-file-icon), so an icon rule can only ever be a bonus.
+
+   Two things here are load-bearing against a theme with its own opinion
+   about canvas files, and both come from the same failure: 1.1.26's tint
+   looked like it never applied.
+
+   `filter: none` is why it looked that way. Blue Topaz ends its canvas rule
+   with `filter: hue-rotate(180deg)`, and a hue rotation applies to whatever
+   colour it finds — so our blue was rotated into the very orange we were
+   trying to be distinguishable from, arriving looking untouched. !important
+   settles specificity, but it cannot settle a filter: a colour override is
+   worthless while something downstream is still spinning the result.
+
+   The word is the part no theme can undo. A hue rotation turns blue into
+   orange; nothing turns VISUAL back into CANVAS. `color: transparent` hides
+   the real text while keeping the pill at exactly the size and padding the
+   theme gave it, and the overlay inherits the theme's own font, so this
+   reads as native styling rather than as something bolted on. Longhand
+   offsets rather than `inset`, on the same reasoning as the text-indent
+   removal in 1.1.22 — see test/stylesheet-compat.test.ts.
+
+   The label names the plugin rather than the concept ("BOARD" was the first
+   try) because the tag slot normally shows the file extension, and both
+   files really are .canvas — having left "what kind of file is this?"
+   behind, "which plugin owns it?" is the more honest question to answer.
+   Six characters is not a coincidence either: it is CANVAS's own width, so
+   the pill fills exactly rather than leaving the label floating in it. A
+   longer label would spill past the coloured background, since the pill is
+   still sized by the transparent text underneath. */
+.nav-file-title.visual-notes-explorer-board .nav-file-tag,
+.tree-item-self.visual-notes-explorer-board .nav-file-tag {
+  position: relative;
+  color: transparent !important;
+  background-color: var(--vn-explorer-board-pill) !important;
+  border: 1px solid color-mix(in srgb, var(--vn-explorer-board-tint) 45%, transparent);
+  filter: none !important;
+}
+
+.nav-file-title.visual-notes-explorer-board .nav-file-tag::after,
+.tree-item-self.visual-notes-explorer-board .nav-file-tag::after {
+  content: 'VISUAL';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--vn-explorer-board-tint);
+  font-weight: var(--font-semibold);
+}
+
+/* Bonus, never relied on. Only the theme's hue rotation is undone, not the
+   icon's colour: the icon then keeps whatever the theme gives files in
+   general, which already differs from the canvas-orange it was being rotated
+   into. Setting a colour instead would mean guessing whether the icon is an
+   svg, a mask, or a glyph — and guessing wrong paints a block over it. */
+.nav-file-title.visual-notes-explorer-board .nav-file-title-content::before,
+.tree-item-self.visual-notes-explorer-board .nav-file-title-content::before {
+  filter: none !important;
+}
+.nav-file-title.visual-notes-explorer-board svg,
+.tree-item-self.visual-notes-explorer-board svg,
+.nav-file-title.visual-notes-explorer-board .nav-file-icon,
+.tree-item-self.visual-notes-explorer-board .nav-file-icon {
+  color: var(--vn-explorer-board-tint) !important;
 }

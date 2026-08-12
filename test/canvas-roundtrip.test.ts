@@ -23,7 +23,7 @@ const TEMPLATES = join(__dirname, '..', 'templates-src');
 // a kind to the union without giving it round-trip coverage fails here.
 const ALL_KINDS = [
   'tile', 'sticky', 'checklist', 'comment', 'table',
-  'image', 'audio', 'note-link', 'bookmark',
+  'image', 'audio', 'video', 'note-link', 'bookmark',
   'kanban-column', 'kanban-board', 'column', 'map', 'swatch', 'file', 'callout',
   'group', 'calendar', 'checkers',
 ] as const;

@@ -23,6 +23,7 @@ import { TEXT_CARD_DEFAULT_FONT, TEXT_CARD_MIN_FONT } from '../src/file-types';
 import { PenOptionsPanel, DEFAULT_PEN_DRAW_OPTIONS, type PenDrawOptions } from '../src/pen-options-panel';
 import { visualNotesToCanvas, canvasToVisualNotes } from '../src/canvas-format';
 import { fakeApp } from './fake-app';
+import { FakeVault } from './fake-vault';
 import { Platform, Menu } from 'obsidian';
 import type {
   VisualNotesFile, StickyCard, TileCard, TableCard, CommentCard,
@@ -33,6 +34,9 @@ import type {
 function setup(
   cards: VisualNotesFile['cards'], connections: VisualNotesFile['connections'] = [],
   mobileFabPosition: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' = 'bottom-right',
+  // Cards that resolve a vault path (video, audio, image) need the file to
+  // actually exist, or they render their "not found" state instead.
+  vault: FakeVault = new FakeVault(),
 ) {
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -42,7 +46,7 @@ function setup(
   };
   const file = { path: 'Board.canvas', basename: 'Board', name: 'Board.canvas', extension: 'canvas' } as any;
   const renderer = new FreeformRenderer(
-    fakeApp(), container, board, file, async () => {}, async () => {},
+    fakeApp(vault), container, board, file, async () => {}, async () => {},
     30, undefined, 'left', undefined,
     false, // cardDragAnimationEnabled — skip the tilt rAF loop, irrelevant to data assertions
     1, false,
@@ -2340,6 +2344,40 @@ describe('UI smoke: board light/dark appearance', () => {
     expect(container.querySelector('.visual-notes-theme-toggle-btn')).toBeNull();
   });
 
+  it('gives the light/dark button no board-level appearance state to set', () => {
+    // The bottom-right sun/moon button is NOT the removed per-board toggle
+    // coming back. That one gave each board its own appearance, so a board
+    // could disagree with Obsidian — the two-sources-of-truth problem above.
+    // This one changes Obsidian's setting and stores nothing on the board,
+    // so there is still exactly one place appearance lives. Asserting the
+    // board stays untouched is what keeps the distinction real rather than
+    // just a claim in a comment.
+    const { container, board, renderer } = setup([]);
+    const btn = container.querySelector<HTMLElement>('.visual-notes-appearance-btn');
+    expect(btn).not.toBeNull();
+
+    btn!.click();
+
+    expect(board.appearance).toBeUndefined();
+    expect(renderer.boardIsDark()).toBe(document.body.hasClass('theme-dark'));
+  });
+
+  it('follows the theme rather than the click', () => {
+    // The icon is refreshed by the workspace's css-change event, never by
+    // the click handler, so a click Obsidian ignores leaves the button
+    // showing the truth instead of a switch that never happened.
+    document.body.removeClass('theme-dark');
+    const { container } = setup([]);
+    const btn = container.querySelector<HTMLElement>('.visual-notes-appearance-btn')!;
+    const before = btn.getAttribute('aria-label');
+    expect(before).toBe('Switch Obsidian to dark mode');
+
+    // The stub App exposes no command surface, so nothing can have changed.
+    btn.click();
+
+    expect(btn.getAttribute('aria-label')).toBe(before);
+  });
+
   it('preserves a legacy pinned appearance through a canvas round trip', () => {
     // The value is no longer read, but a board written by an older version
     // must not have it silently stripped out of the user's file on save.
@@ -3036,5 +3074,135 @@ describe('UI smoke: YouTube embed play/pause (pointer-capture regression)', () =
     btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     press(el, overlay);
     expect(commandsSentTo(el)).toEqual([]);
+  });
+});
+
+// Video cards, from an enhancement request: dragging a video onto a board gave
+// a file card you had to open elsewhere, where Obsidian's own Canvas embeds a
+// player you can scrub in place.
+describe('UI smoke: video cards', () => {
+  const CLIP = '_Assets/Video/clip.mp4';
+
+  function withVideo(path = CLIP) {
+    const vault = new FakeVault();
+    vault.putText(path, 'not really binary, but enough to exist');
+    const card = { id: 'v1', kind: 'video', x: 0, y: 0, w: 320, h: 180,
+      source: { type: 'vault', path } } as unknown as Card;
+    return { ...setup([card], [], 'bottom-right', vault), card };
+  }
+
+  it('renders a real player, not an icon', () => {
+    const { container } = withVideo();
+    const video = container.querySelector<HTMLVideoElement>('video.visual-notes-video-player');
+
+    expect(video).not.toBeNull();
+    expect(video!.controls).toBe(true);
+    expect(video!.getAttribute('src')).toBe(`fake-resource://${CLIP}`);
+  });
+
+  it('loads only metadata, so a board of clips does not read them all off disk', () => {
+    const { container } = withVideo();
+    expect(container.querySelector<HTMLVideoElement>('video')!.preload).toBe('metadata');
+  });
+
+  it('does not autoplay', () => {
+    // Twenty moodboard cards playing at once is not a feature.
+    expect(withVideo().container.querySelector<HTMLVideoElement>('video')!.autoplay).toBe(false);
+  });
+
+  // The two halves of the same split, and they only work as a pair. Taking
+  // every press made the controls usable but left the card undraggable by its
+  // video, which is nearly all of it; taking none would make the play button
+  // and scrubber start a drag instead. jsdom has no layout, so the rect is
+  // supplied rather than measured — which is why the geometry lives in a pure
+  // helper (isOnVideoControls) instead of inline.
+  function pressAt(container: HTMLElement, clientY: number) {
+    const cardEl = container.querySelector<HTMLElement>('.visual-notes-freeform-card[data-id="v1"]')!;
+    const video = container.querySelector<HTMLElement>('video')!;
+    video.getBoundingClientRect = () => ({ top: 0, bottom: 180, height: 180, left: 0, right: 320, width: 320, x: 0, y: 0, toJSON: () => ({}) });
+    const reachedCard = vi.fn();
+    cardEl.addEventListener('pointerdown', reachedCard);
+    video.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientY }));
+    return reachedCard;
+  }
+
+  it('keeps a press on the controls away from the card', () => {
+    // Otherwise the play button and scrubber start a card drag instead of
+    // doing their job — the failure this whole split exists to avoid, and the
+    // same one as the calendar's "+N more" in 1.1.25.
+    expect(pressAt(withVideo().container, 170)).not.toHaveBeenCalled();
+  });
+
+  it('lets a press on the picture drag the card', () => {
+    // Reported after the first version: the card could not be moved at all,
+    // because the video covers nearly the whole of it.
+    expect(pressAt(withVideo().container, 40)).toHaveBeenCalled();
+  });
+
+  it('offers a way out when the format cannot be decoded', () => {
+    // mkv and avi generally can't be played by Electron's Chromium, and mov
+    // depends on its codec. A dead black rectangle would be worse than the
+    // file card this replaced, so failure has to land somewhere useful.
+    const { container } = withVideo();
+    container.querySelector<HTMLElement>('video')!.dispatchEvent(new Event('error'));
+
+    const fallback = container.querySelector('.visual-notes-video-fallback');
+    expect(fallback).not.toBeNull();
+    expect(container.querySelector('video')).toBeNull();
+    expect(fallback!.textContent).toContain('Open externally');
+  });
+
+  it('says so when the file is gone rather than showing a broken player', () => {
+    const card = { id: 'v1', kind: 'video', x: 0, y: 0, w: 320, h: 180,
+      source: { type: 'vault', path: 'missing.mp4' } } as unknown as Card;
+    const { container } = setup([card]);
+
+    expect(container.querySelector('.visual-notes-video-missing')).not.toBeNull();
+    expect(container.querySelector('video')).toBeNull();
+  });
+
+  it('survives a canvas round trip as a plain file node', () => {
+    // A file node is what Obsidian's own Canvas renders as a video player, so
+    // the board stays playable in both viewers rather than becoming ours-only.
+    const { board } = withVideo();
+    const node = visualNotesToCanvas(board).nodes.find(n => n.id === 'v1')!;
+    expect(node.type).toBe('file');
+    expect(node.file).toBe(CLIP);
+
+    const back = canvasToVisualNotes(visualNotesToCanvas(board));
+    expect(back.cards[0].kind).toBe('video');
+  });
+});
+
+describe('UI smoke: converting an existing video file card', () => {
+  // Boards built before video cards existed are full of file cards pointing at
+  // videos, and nothing upgrades them on its own — which would leave the
+  // person who asked for this staring at the same board as before.
+  function fileCardMenu(path: string) {
+    const vault = new FakeVault();
+    vault.putText(path, 'x');
+    const card = { id: 'f1', kind: 'file', x: 10, y: 20, w: 260, h: 300, z: 3, path } as unknown as Card;
+    const { renderer, board, container } = setup([card], [], 'bottom-right', vault);
+    const el = container.querySelector<HTMLElement>('.visual-notes-freeform-card[data-id="f1"]')!;
+    const menu = (renderer as any).newMenu();
+    (renderer as any).populateCardMenu(menu, el, card);
+    return { menu, board };
+  }
+
+  it('converts in place, keeping id, position and size', () => {
+    const { menu, board } = fileCardMenu('_Assets/Video/old.mp4');
+    menu.items.find((i: { title: string }) => i.title === 'Play on canvas').__trigger();
+
+    expect(board.cards).toHaveLength(1);
+    const card = board.cards[0] as unknown as { kind: string; id: string; x: number; y: number; w: number; h: number; z: number; source: { path: string } };
+    expect(card.kind).toBe('video');
+    expect(card.id).toBe('f1');
+    expect([card.x, card.y, card.w, card.h, card.z]).toEqual([10, 20, 260, 300, 3]);
+    expect(card.source.path).toBe('_Assets/Video/old.mp4');
+  });
+
+  it('is not offered for a file that is not a video', () => {
+    const { menu } = fileCardMenu('Docs/report.pdf');
+    expect(menu.items.some((i: { title: string }) => i.title === 'Play on canvas')).toBe(false);
   });
 });

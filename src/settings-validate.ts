@@ -72,7 +72,7 @@ export function normalizeSettings(s: VisualNotesSettings): VisualNotesSettings {
   for (const key of ['defaultBoardPath', 'defaultNewBoardFolder', 'defaultStickyColor', 'commentAuthorName', 'dotColor', 'canvasBgColor', 'clipFolder', 'clipBoardPath'] as const) {
     if (out[key] !== undefined && typeof out[key] !== 'string') delete out[key];
   }
-  for (const key of ['v2migrationDone', 'autoRelinkOnOpen', 'cardDragAnimation', 'largeKanbanItems', 'snapToGrid', 'clipAutoImport'] as const) {
+  for (const key of ['v2migrationDone', 'autoRelinkOnOpen', 'cardDragAnimation', 'largeKanbanItems', 'snapToGrid', 'clipAutoImport', 'explorerBoardTint', 'appearanceButton'] as const) {
     if (out[key] !== undefined && typeof out[key] !== 'boolean') delete out[key];
   }
   for (const key of ['bookmarkCacheDays', 'dotSize', 'snapGridSize', 'trashZoneSize', 'cardDragAnimationIntensity'] as const) {

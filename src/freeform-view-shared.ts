@@ -8,7 +8,7 @@ import {
 } from 'obsidian';
 import {
   TileCard, StickyCard, TextCard, ChecklistCard, NoteLinkCard,
-  ImageCard, AudioCard, BookmarkCard, KanbanColumnCard, KanbanBoardCard,
+  ImageCard, AudioCard, VideoCard, BookmarkCard, KanbanColumnCard, KanbanBoardCard,
   KanbanItem, Card, ColumnCard, ColumnChildCard, CommentCard,
   TableCard,
   MapCard, SwatchCard, FileCard, CalloutCard, GroupCard,
@@ -55,6 +55,14 @@ export const BOOKMARK_MIN_W      = 180;
 export const BOOKMARK_MIN_H      = 100;
 export const AUDIO_DEFAULT_W     = 280;
 export const AUDIO_DEFAULT_H     = 100;
+// Exact 16:9. The card resizes to the clip's real aspect ratio once its
+// metadata loads (see measureVideoAspect), so this is only what a card looks
+// like for the moment before that arrives — 16:9 makes that moment least
+// jarring, being what most footage actually is.
+export const VIDEO_DEFAULT_W     = 320;
+export const VIDEO_DEFAULT_H     = 180;
+export const VIDEO_MIN_W         = 120;
+export const VIDEO_MIN_H         = 68;
 export const MAP_DEFAULT_W       = 480;
 export const MAP_DEFAULT_H       = 360;
 export const MAP_MIN_W           = 200;
@@ -79,6 +87,17 @@ export const GROUP_PAD           = 40; // margin added around selected cards' bb
 export const AUDIO_MIN_W         = 200;
 export const AUDIO_MIN_H         = 72;
 export const AUDIO_EXTS          = ['mp3', 'wav'];
+// What becomes a video card on drop. Wider than the set Electron's Chromium
+// can actually decode -- mkv and avi usually cannot be, and mov depends on its
+// codec -- because "videos become video cards" is a rule people can predict,
+// whereas a hand-picked subset looks arbitrary from the outside. Whatever
+// can't play is caught by the <video> element's error event and shown as a
+// card offering to open it externally, which beats a black rectangle.
+export const VIDEO_EXTS          = ['mp4', 'webm', 'mov', 'm4v', 'ogv', 'mkv', 'avi'];
+// Height of the browser's own control bar along the bottom of a <video>.
+// Chromium draws it at roughly this, and there is no way to ask: the controls
+// live in a closed shadow root, so hit-testing them means measuring instead.
+export const VIDEO_CONTROLS_H    = 40;
 export const KANBAN_DEFAULT_W    = 220;
 export const KANBAN_DEFAULT_H    = 340;
 export const KANBAN_MIN_W        = 160;
@@ -219,9 +238,29 @@ export interface AppWithPrivateAPIs extends App {
   plugins?: { enabledPlugins?: Set<string> };
 }
 
-export type SupportedCard = TileCard | StickyCard | TextCard | ChecklistCard | CommentCard | TableCard | NoteLinkCard | ImageCard | AudioCard | BookmarkCard | KanbanColumnCard | KanbanBoardCard | ColumnCard | MapCard | SwatchCard | FileCard | CalloutCard | GroupCard | CalendarCard | CheckersCard;
+export type SupportedCard = TileCard | StickyCard | TextCard | ChecklistCard | CommentCard | TableCard | NoteLinkCard | ImageCard | AudioCard | VideoCard | BookmarkCard | KanbanColumnCard | KanbanBoardCard | ColumnCard | MapCard | SwatchCard | FileCard | CalloutCard | GroupCard | CalendarCard | CheckersCard;
 
 export const KANBAN_BOARD_MIN_W = 320;
+
+/**
+ * Whether a press at `clientY` landed on a video's control bar rather than on
+ * the picture.
+ *
+ * This is what lets a video card behave like every other card. The controls
+ * need the press, but taking every press meant the card could not be dragged
+ * by grabbing the video — which is most of it. Splitting by height gives the
+ * controls the strip they occupy and leaves the rest to the canvas.
+ *
+ * Capped at 40% of the card so a very short video isn't entirely control bar,
+ * which would make it undraggable again by a different route.
+ *
+ * Takes a rect rather than an element because jsdom has no layout engine: as
+ * arithmetic this is testable, and as a DOM measurement it would not be.
+ */
+export function isOnVideoControls(rect: { bottom: number; height: number }, clientY: number): boolean {
+  if (rect.height <= 0) return false; // unlaid-out element — treat it all as picture
+  return clientY >= rect.bottom - Math.min(VIDEO_CONTROLS_H, rect.height * 0.4);
+}
 
 export function cardMinSize(kind: Card['kind']): { w: number; h: number } {
   // Tiny, because a text card's real size comes from its font size rather
@@ -235,6 +274,7 @@ export function cardMinSize(kind: Card['kind']): { w: number; h: number } {
   if (kind === 'image')     return { w: IMAGE_MIN_W,     h: IMAGE_MIN_H     };
   if (kind === 'bookmark')  return { w: BOOKMARK_MIN_W,  h: BOOKMARK_MIN_H  };
   if (kind === 'audio')     return { w: AUDIO_MIN_W,     h: AUDIO_MIN_H     };
+  if (kind === 'video')     return { w: VIDEO_MIN_W,     h: VIDEO_MIN_H     };
   if (kind === 'kanban-column') return { w: KANBAN_MIN_W, h: KANBAN_MIN_H };
   if (kind === 'kanban-board')  return { w: KANBAN_BOARD_MIN_W, h: KANBAN_MIN_H };
   if (kind === 'column')        return { w: COLUMN_MIN_W, h: COLUMN_MIN_H };
@@ -321,6 +361,15 @@ export class VaultAudioPickerModal extends FuzzySuggestModal<TFile> {
   constructor(app: App, private onChoose: (f: TFile) => void) { super(app); }
   getItems(): TFile[] {
     return this.app.vault.getFiles().filter(f => AUDIO_EXTS.includes(f.extension.toLowerCase()));
+  }
+  getItemText(f: TFile): string { return f.path; }
+  onChooseItem(f: TFile): void { this.onChoose(f); }
+}
+
+export class VaultVideoPickerModal extends FuzzySuggestModal<TFile> {
+  constructor(app: App, private onChoose: (f: TFile) => void) { super(app); }
+  getItems(): TFile[] {
+    return this.app.vault.getFiles().filter(f => VIDEO_EXTS.includes(f.extension.toLowerCase()));
   }
   getItemText(f: TFile): string { return f.path; }
   onChooseItem(f: TFile): void { this.onChoose(f); }

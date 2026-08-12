@@ -7,6 +7,7 @@ import {
   addClipsToBoard, announceClipImport, clipFolderExists, listClipFiles, shouldQueueClip,
 } from './web-clip-import';
 import { SaveQueue } from './save-queue';
+import { ExplorerDecorator } from './explorer-decor';
 
 // Long enough that clipping several pages in a row costs one board write
 // rather than one each, short enough that a single clip still feels immediate.
@@ -205,6 +206,14 @@ export default class VisualNotesPlugin extends Plugin {
       // earlier registration would queue the entire clippings folder on
       // every launch — the reconcile above already covers that ground, once,
       // deliberately.
+      this.applyExplorerTintSetting();
+      // A canvas can stop being one of ours (or become one) through an edit
+      // made anywhere — including Obsidian's own Canvas view rewriting it —
+      // so what we knew about a path is dropped whenever it changes.
+      this.registerEvent(this.app.vault.on('modify', (file) => { this.explorerDecorator?.forget(file); }));
+      this.registerEvent(this.app.vault.on('rename', (file) => { this.explorerDecorator?.forget(file); }));
+      this.registerEvent(this.app.vault.on('delete', (file) => { this.explorerDecorator?.forget(file); }));
+
       this.registerEvent(this.app.vault.on('create', (file) => { this.queueClip(file); }));
       // 'rename' as well as 'create': sync and other tools frequently *move*
       // a note into the folder rather than creating it there, and a create
@@ -217,7 +226,26 @@ export default class VisualNotesPlugin extends Plugin {
     });
   }
 
+  // ── File-explorer tint ───────────────────────────────────────
+
+  private explorerDecorator: ExplorerDecorator | null = null;
+
+  /** Starts or stops the explorer tint to match the current setting. */
+  applyExplorerTintSetting(): void {
+    const wanted = this.settings.explorerBoardTint !== false;
+    if (wanted) {
+      this.explorerDecorator ??= new ExplorerDecorator(this.app);
+      this.explorerDecorator.start();
+    } else {
+      this.explorerDecorator?.stop();
+    }
+  }
+
   override onunload(): void {
+    // Removes the class from every row it added it to, so disabling the
+    // plugin leaves the explorer exactly as Obsidian drew it.
+    this.explorerDecorator?.stop();
+
     // A debounced clip import must not fire against a plugin that has been
     // disabled. Nothing is lost by dropping it: the queue only holds paths,
     // and the startup reconcile picks up anything missed the next time the

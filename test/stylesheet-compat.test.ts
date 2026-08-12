@@ -52,6 +52,64 @@ describe('stylesheet: the modal path display cannot collapse to a vertical colum
   });
 });
 
+// Both halves of the explorer tag came out of one bug: the 1.1.26 tint
+// looked like it had never applied. It had — Blue Topaz ends its canvas rule
+// with `filter: hue-rotate(180deg)`, which rotated our blue into the same
+// orange we were trying to be distinguishable from. !important settles
+// specificity but says nothing about a filter, so the colour was overridden
+// and then spun back. Hence a rule that cannot be undone by a hue rotation
+// and a colour that is no longer rotated at all.
+describe('stylesheet: the explorer board tag survives a theme that styles canvas files', () => {
+  const tag = declarations.match(
+    /\.nav-file-title\.visual-notes-explorer-board \.nav-file-tag,\s*\.tree-item-self\.visual-notes-explorer-board \.nav-file-tag \{([^}]*)\}/,
+  )?.[0] ?? '';
+  const after = declarations.match(
+    /\.nav-file-title\.visual-notes-explorer-board \.nav-file-tag::after,\s*\.tree-item-self\.visual-notes-explorer-board \.nav-file-tag::after \{([^}]*)\}/,
+  )?.[0] ?? '';
+
+  it('still has both rules to constrain', () => {
+    expect(tag).not.toBe('');
+    expect(after).not.toBe('');
+  });
+
+  it('cancels any filter the theme put on the tag', () => {
+    expect(tag).toMatch(/filter:\s*none\s*!important/);
+  });
+
+  it('hides the real extension text without collapsing the pill', () => {
+    // transparent, not display:none or font-size:0 — the theme's own padding
+    // and radius stay, and the overlay lands on a box that still has a size.
+    expect(tag).toMatch(/color:\s*transparent\s*!important/);
+  });
+
+  it('names the owning plugin in a way no colour filter can undo', () => {
+    expect(after).toMatch(/content:\s*'VISUAL'/);
+  });
+
+  it('keeps the label to CANVAS\'s own width', () => {
+    // The pill is still sized by the transparent text underneath, so a label
+    // longer than CANVAS spills past the coloured background it sits on.
+    const label = /content:\s*'([^']*)'/.exec(after)?.[1] ?? '';
+    expect(label.length).toBeGreaterThan(0);
+    expect(label.length).toBeLessThanOrEqual('CANVAS'.length);
+  });
+
+  it('gives the overlay its own colour rather than inheriting', () => {
+    // The parent is transparent by design; an inherited colour would make
+    // the replacement text invisible too.
+    expect(after).toMatch(/color:\s*var\(--vn-explorer-board-tint\)/);
+  });
+
+  it('positions the overlay with longhand offsets, not inset', () => {
+    // Same reasoning as the text-indent removal above: a shorthand Obsidian's
+    // checker may call partial is not worth one line of CSS.
+    expect(after).not.toMatch(/(^|[;{\s])inset\s*:/);
+    for (const side of ['top', 'right', 'bottom', 'left']) {
+      expect(after).toMatch(new RegExp(`${side}:\\s*0`));
+    }
+  });
+});
+
 describe('stylesheet: bullet hanging indent survives without text-indent', () => {
   // The indent is what keeps continuation lines (Shift+Enter, natural wraps,
   // a multi-paragraph item) under the text instead of under the marker. It is

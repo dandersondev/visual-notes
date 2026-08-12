@@ -8,7 +8,7 @@ import { getStroke } from 'perfect-freehand';
 import { EASING_FNS, PenOptionsPanel } from './pen-options-panel';
 import {
   TileCard, TileTarget, NoteLinkCard,
-  ImageCard, AudioCard,
+  ImageCard, AudioCard, VideoCard,
   KanbanItem, Card, Connection, ColumnCard, ColumnChildCard,
   FileCard,
   DrawingStroke, TILE_DRAG_MIME, DraggedTilePayload,
@@ -39,11 +39,11 @@ import {
   COMMENT_DEFAULT_W, COMMENT_DEFAULT_H, TABLE_DEFAULT_W, TABLE_DEFAULT_H,
   NOTELINK_DEFAULT_W, NOTELINK_DEFAULT_H,
   IMAGE_DEFAULT_W, IMAGE_DEFAULT_H,
-  BOOKMARK_DEFAULT_W, BOOKMARK_DEFAULT_H, AUDIO_DEFAULT_W, AUDIO_DEFAULT_H,
+  BOOKMARK_DEFAULT_W, BOOKMARK_DEFAULT_H, AUDIO_DEFAULT_W, AUDIO_DEFAULT_H, VIDEO_DEFAULT_W, VIDEO_DEFAULT_H,
   MAP_DEFAULT_W, MAP_DEFAULT_H, SWATCH_DEFAULT_W, SWATCH_DEFAULT_H,
   FILE_DEFAULT_W, FILE_DEFAULT_H,
   CALLOUT_DEFAULT_W, CALLOUT_DEFAULT_H, GROUP_DEFAULT_W, GROUP_DEFAULT_H,
-  AUDIO_EXTS,
+  AUDIO_EXTS, VIDEO_EXTS,
   KANBAN_DEFAULT_W, KANBAN_DEFAULT_H, COLUMN_DEFAULT_W, COLUMN_DEFAULT_H,
   CALENDAR_DEFAULT_W, CALENDAR_DEFAULT_H,
   CHECKERS_DEFAULT_W, CHECKERS_DEFAULT_H,
@@ -624,6 +624,15 @@ export const canvasMethods = {
             const cp = screenToCanvas(e.clientX - rect.left + offsetX, e.clientY - rect.top, this.vp);
             await this.handleDroppedAudio(f, this.applySnap(cp.x - AUDIO_DEFAULT_W / 2), this.applySnap(cp.y - AUDIO_DEFAULT_H / 2));
             offsetX += AUDIO_DEFAULT_W + 16;
+          } else if (f.type.startsWith('video/') || VIDEO_EXTS.includes(f.name.split('.').pop()?.toLowerCase() ?? '')) {
+            // Checked after audio so the MIME type settles .webm, which is a
+            // container for both — audio/webm stays audio, video/webm becomes
+            // video. The extension is only a fallback for when the OS reports
+            // no type at all, which Windows does often enough to matter; an
+            // untyped .webm is far more likely to be video.
+            const cp = screenToCanvas(e.clientX - rect.left + offsetX, e.clientY - rect.top, this.vp);
+            await this.handleDroppedVideo(f, this.applySnap(cp.x - VIDEO_DEFAULT_W / 2), this.applySnap(cp.y - VIDEO_DEFAULT_H / 2));
+            offsetX += VIDEO_DEFAULT_W + 16;
           } else {
             // Anything else from the OS becomes a generic file card,
             // saved into _Assets/ like every other imported binary.
@@ -671,6 +680,19 @@ export const canvasMethods = {
             id: crypto.randomUUID(), kind: 'audio',
             x: this.applySnap(cp.x - AUDIO_DEFAULT_W / 2), y: this.applySnap(cp.y - AUDIO_DEFAULT_H / 2),
             w: AUDIO_DEFAULT_W, h: AUDIO_DEFAULT_H, z: this.nextZ(),
+            source: { type: 'vault', path: newPath },
+          };
+          this.pushUndo(); this.board.cards.push(card); await this.saveNow();
+          this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
+        } else if (VIDEO_EXTS.includes(ext)) {
+          // Plays where it lands, rather than becoming an icon you have to
+          // open elsewhere — which is what Obsidian's own Canvas does with a
+          // dropped video, and what this was missing.
+          const newPath = await sortAssetFile(this.app, vf);
+          const card: VideoCard = {
+            id: crypto.randomUUID(), kind: 'video',
+            x: this.applySnap(cp.x - VIDEO_DEFAULT_W / 2), y: this.applySnap(cp.y - VIDEO_DEFAULT_H / 2),
+            w: VIDEO_DEFAULT_W, h: VIDEO_DEFAULT_H, z: this.nextZ(),
             source: { type: 'vault', path: newPath },
           };
           this.pushUndo(); this.board.cards.push(card); await this.saveNow();
@@ -977,6 +999,14 @@ export const canvasMethods = {
       // on in onUp, once it's known whether this turned into a drag.
       const onYouTubeOverlay = !!target.closest('.visual-notes-bookmark-youtube-overlay');
 
+      // A press on a video's picture (its controls stopped propagation before
+      // this ever ran) drags the card like anywhere else — and if it turns out
+      // not to be a drag, it means play/pause, which is what clicking a video
+      // means everywhere. Same shape as the YouTube overlay above, and for the
+      // same reason: pointer capture retargets the click, so the element can't
+      // detect its own.
+      const videoBodyEl = target instanceof HTMLVideoElement ? target : null;
+
       if (this.connectMode) {
         e.stopPropagation(); e.preventDefault();
         if (!this.connectSourceId) {
@@ -1221,6 +1251,10 @@ export const canvasMethods = {
         // Pressed the video overlay and let go without dragging — that's the
         // "Click to play or pause" the overlay's tooltip promises.
         if (onYouTubeOverlay && !dragMoved) toggleYouTubePlayback(el);
+        if (videoBodyEl && !dragMoved) {
+          if (videoBodyEl.paused) void videoBodyEl.play().catch(() => { /* codec/autoplay policy — the controls still work */ });
+          else videoBodyEl.pause();
+        }
         if (trashing) {
           // pushUndo already ran when the drag crossed its threshold, so a
           // single undo restores the cards at their pre-drag positions.
@@ -1718,6 +1752,8 @@ export const canvasMethods = {
         this.addImageAt(s(cx - IMAGE_DEFAULT_W / 2), s(cy - IMAGE_DEFAULT_H / 2)); break;
       case 'audio':
         this.addAudioAt(s(cx - AUDIO_DEFAULT_W / 2), s(cy - AUDIO_DEFAULT_H / 2)); break;
+      case 'video':
+        this.addVideoAt(s(cx - VIDEO_DEFAULT_W / 2), s(cy - VIDEO_DEFAULT_H / 2)); break;
       case 'bookmark':
         this.addBookmarkAt(s(cx - BOOKMARK_DEFAULT_W / 2), s(cy - BOOKMARK_DEFAULT_H / 2)); break;
       case 'map':

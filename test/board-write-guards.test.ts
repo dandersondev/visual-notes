@@ -9,9 +9,9 @@
 // something we haven't thought of.
 import { describe, it, expect } from 'vitest';
 import {
-  readBoardFile, writeBoardFile, classifyCanvasFile, EMPTIED_BAK_SUFFIX,
+  readBoardFile, writeBoardFile, classifyCanvasFile, EMPTIED_BAK_SUFFIX, CONFLICT_BAK_SUFFIX,
 } from '../src/file-io';
-import { visualNotesToCanvas } from '../src/canvas-format';
+import { visualNotesToCanvas, canvasToVisualNotes } from '../src/canvas-format';
 import { FakeVault } from './fake-vault';
 import type { VisualNotesFile, StickyCard } from '../src/file-types';
 
@@ -101,6 +101,172 @@ describe('writeBoardFile: a board that failed to read is never written back', ()
     await writeBoardFile(vault.toApp(), file, placeholder);
 
     expect(vault.has('Board.canvas' + EMPTIED_BAK_SUFFIX)).toBe(false);
+  });
+});
+
+// A renderer holds its whole board in memory from the moment it opens, so a
+// save an hour later still carries that original snapshot. Writing it blindly
+// overwrites anything that arrived in between — from another device, another
+// pane, or a git pull. These cover the three-way rule that replaced the blind
+// write, and the two cases that decide whether it is usable rather than merely
+// correct: it must not fire on changes the user never made, and it must not
+// see its own writes as somebody else's.
+describe('writeBoardFile: a revision we did not expect is never destroyed', () => {
+  /** Someone else's version of the same board, landing on disk underneath us. */
+  function externalEdit(vault: FakeVault, ids: string[]): string {
+    const raw = JSON.stringify(visualNotesToCanvas(board(ids.map(sticky))), null, 2);
+    vault.putText('Board.canvas', raw);
+    return raw;
+  }
+
+  it('round-trips a board back to identical text, which the whole guard rests on', () => {
+    // If reading and re-serializing a board it never touched produced even
+    // slightly different text, "we changed nothing" could never be detected
+    // and every sync would raise a false conflict.
+    const raw = JSON.stringify(visualNotesToCanvas(board([sticky('s1'), sticky('s2')])), null, 2);
+    const round = JSON.stringify(visualNotesToCanvas(canvasToVisualNotes(JSON.parse(raw) as never)), null, 2);
+    expect(round).toBe(raw);
+  });
+
+  it('writes normally when the file still holds the revision we loaded', async () => {
+    const { vault, file } = vaultWithBoard();
+    const loaded = await readBoardFile(vault.toApp(), file);
+    loaded.cards.push(sticky('mine'));
+
+    await writeBoardFile(vault.toApp(), file, loaded);
+
+    expect(vault.has('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(false);
+    const after = JSON.parse(vault.textAt('Board.canvas')) as { nodes: { id: string }[] };
+    expect(after.nodes.map(n => n.id)).toContain('mine');
+  });
+
+  it('preserves the other revision, and still saves ours', async () => {
+    const { vault, file } = vaultWithBoard();
+    const loaded = await readBoardFile(vault.toApp(), file);
+    loaded.cards.push(sticky('mine'));
+    const theirs = externalEdit(vault, ['theirs']);
+
+    await writeBoardFile(vault.toApp(), file, loaded);
+
+    // Their work is recoverable...
+    expect(vault.textAt('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(theirs);
+    // ...and the user was not interrupted: their save landed.
+    const after = JSON.parse(vault.textAt('Board.canvas')) as { nodes: { id: string }[] };
+    expect(after.nodes.map(n => n.id)).toContain('mine');
+  });
+
+  it('leaves their revision alone entirely when we have nothing of our own to save', async () => {
+    // Opening a board and touching nothing, while a sync lands. There is no
+    // conflict here — only one person edited — so there should be no backup
+    // and no overwrite.
+    const { vault, file } = vaultWithBoard();
+    const loaded = await readBoardFile(vault.toApp(), file);
+    const theirs = externalEdit(vault, ['theirs']);
+
+    await writeBoardFile(vault.toApp(), file, loaded);
+
+    expect(vault.textAt('Board.canvas')).toBe(theirs);
+    expect(vault.has('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(false);
+  });
+
+  it('does not count panning as a change of ours', async () => {
+    // Viewport lives in the file and panning schedules a save, so without
+    // normalising it out, scrolling around a board would be enough to raise a
+    // conflict over a change the user never made.
+    const { vault, file } = vaultWithBoard();
+    const loaded = await readBoardFile(vault.toApp(), file);
+    loaded.viewport = { x: 500, y: 300, zoom: 2 };
+    const theirs = externalEdit(vault, ['theirs']);
+
+    await writeBoardFile(vault.toApp(), file, loaded);
+
+    expect(vault.textAt('Board.canvas')).toBe(theirs);
+    expect(vault.has('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(false);
+  });
+
+  it('does not see its own previous write as somebody else`s change', async () => {
+    // The regression that would make the guard unusable: without updating the
+    // baseline after a successful write, every save from the second one on
+    // would report a conflict and write a backup.
+    const { vault, file } = vaultWithBoard();
+    const loaded = await readBoardFile(vault.toApp(), file);
+
+    loaded.cards.push(sticky('first'));
+    await writeBoardFile(vault.toApp(), file, loaded);
+    loaded.cards.push(sticky('second'));
+    await writeBoardFile(vault.toApp(), file, loaded);
+
+    expect(vault.has('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(false);
+    const after = JSON.parse(vault.textAt('Board.canvas')) as { nodes: { id: string }[] };
+    expect(after.nodes.map(n => n.id)).toEqual(expect.arrayContaining(['first', 'second']));
+  });
+
+  it('writes a board that was never read from disk', async () => {
+    // A seeded template or a brand-new board carries no baseline: there is no
+    // earlier revision to protect, so the write is simply ours to make.
+    const { vault, file } = vaultWithBoard();
+
+    await writeBoardFile(vault.toApp(), file, board([sticky('fresh')]));
+
+    expect(vault.has('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(false);
+    const after = JSON.parse(vault.textAt('Board.canvas')) as { nodes: { id: string }[] };
+    expect(after.nodes.map(n => n.id)).toEqual(['fresh']);
+  });
+
+  it('refreshes the conflict copy rather than accumulating one per save', async () => {
+    const { vault, file } = vaultWithBoard();
+    const loaded = await readBoardFile(vault.toApp(), file);
+    loaded.cards.push(sticky('mine'));
+
+    externalEdit(vault, ['first-theirs']);
+    await writeBoardFile(vault.toApp(), file, loaded);
+    const latest = externalEdit(vault, ['second-theirs']);
+    loaded.cards.push(sticky('more'));
+    await writeBoardFile(vault.toApp(), file, loaded);
+
+    // One file, holding their most recent work — which is the fullest.
+    expect(vault.textAt('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(latest);
+  });
+
+  it('keeps the emptying snapshot and the conflict copy apart', async () => {
+    const { vault, file } = vaultWithBoard();
+    const loaded = await readBoardFile(vault.toApp(), file);
+    loaded.cards = [];                       // cleared here
+    externalEdit(vault, ['theirs']);         // and edited there
+
+    await writeBoardFile(vault.toApp(), file, loaded);
+
+    expect(vault.has('Board.canvas' + EMPTIED_BAK_SUFFIX)).toBe(true);
+    expect(vault.has('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(true);
+  });
+
+  it('catches a revision that lands after the emptying read but before the write', async () => {
+    // The window process() closes. snapshotIfEmptying reads the file, and only
+    // then does the write happen — a plain read-then-write would compare
+    // against that already-stale read and clobber whatever arrived in between.
+    const { vault, file } = vaultWithBoard();
+    const loaded = await readBoardFile(vault.toApp(), file);
+    loaded.cards = [];
+
+    let theirs = '';
+    vault.onNextRead(() => { theirs = externalEdit(vault, ['slipped-in']); });
+
+    await writeBoardFile(vault.toApp(), file, loaded);
+
+    expect(theirs).not.toBe('');
+    expect(vault.textAt('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(theirs);
+  });
+
+  it('still writes nothing at all for a board that failed to read', async () => {
+    const { vault, file, raw } = vaultWithBoard();
+    const placeholder = board([]);
+    placeholder.unreadable = true;
+    placeholder.baseline = 'something stale';
+
+    await writeBoardFile(vault.toApp(), file, placeholder);
+
+    expect(vault.textAt('Board.canvas')).toBe(raw);
+    expect(vault.has('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(false);
   });
 });
 

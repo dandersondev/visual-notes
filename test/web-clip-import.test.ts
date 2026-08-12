@@ -111,8 +111,14 @@ describe('addClipsToBoard: on-disk route', () => {
     const { vault } = await vaultWith(board());
     let writes = 0;
     const app = vault.toApp();
+    // Counts both write paths rather than just modify(): writeBoardFile goes
+    // through process() for its compare-and-write, and the claim being made
+    // here is about how many times the board is written, not which Vault
+    // method does it.
     const realModify = app.vault.modify.bind(app.vault) as typeof app.vault.modify;
     app.vault.modify = (async (f, c: string) => { writes++; return realModify(f, c); }) as typeof app.vault.modify;
+    const realProcess = app.vault.process.bind(app.vault) as typeof app.vault.process;
+    app.vault.process = ((f, fn) => { writes++; return realProcess(f, fn); }) as typeof app.vault.process;
 
     const result = await addClipsToBoard(app, 'Inbox.canvas', ['C/a.md', 'C/b.md', 'C/c.md'], nothingOpen);
 

@@ -3,7 +3,7 @@ import {
   MarkdownRenderer, requestUrl, sanitizeHTMLToDom,
 } from 'obsidian';
 import {
-  ImageCard, AudioCard, BookmarkCard,
+  ImageCard, AudioCard, VideoCard, BookmarkCard,
   MapCard,
   TILE_DRAG_MIME,
 } from './file-types';
@@ -17,19 +17,42 @@ import { sortAssetFile, saveNewAsset } from './asset-manager';
 import {
   IMAGE_DEFAULT_W, IMAGE_DEFAULT_H, IMAGE_MIN_H,
   BOOKMARK_DEFAULT_W, BOOKMARK_DEFAULT_H, AUDIO_DEFAULT_W, AUDIO_DEFAULT_H,
+  VIDEO_DEFAULT_W, VIDEO_DEFAULT_H,
   MAP_DEFAULT_W, MAP_DEFAULT_H,
   AUDIO_EXTS,
+  VIDEO_EXTS,
   IMAGE_EXTS,
   AppWithPrivateAPIs,
-  VaultImagePickerModal, VaultAudioPickerModal,
+  VaultImagePickerModal, VaultAudioPickerModal, VaultVideoPickerModal,
   MediaSourceModal, BookmarkInputModal, KanbanItemUrlModal, isValidURL, openExternalUrl, safeRemoteImageSrc,
+  isOnVideoControls,
 } from './freeform-view-shared';
 import type { FreeformRenderer } from './freeform-view';
+
+/**
+ * A dropped video's own extension, kept rather than guessed at.
+ *
+ * handleDroppedAudio picks from a hardcoded list of three, so anything that
+ * isn't .mp3 or .ogg is saved as .wav whatever it really was. That is survivable
+ * for audio because the player sniffs the content anyway, but it makes the
+ * vault untidy, and there is no reason to repeat it here. Falls back to mp4
+ * only when the name carries no recognisable video extension at all.
+ */
+function safeVideoFilename(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  const base = name.replace(/\.[^.]+$/, '') || 'video';
+  return VIDEO_EXTS.includes(ext) ? `${base}.${ext}` : `${base}.mp4`;
+}
 
 declare module './freeform-view' {
   interface FreeformRenderer {
     renderImageContent(el: HTMLElement, card: ImageCard): void;
     renderAudioContent(el: HTMLElement, card: AudioCard): void;
+    renderVideoContent(el: HTMLElement, card: VideoCard): void;
+    showVideoFallback(el: HTMLElement, card: VideoCard, vf: TFile): void;
+    addVideo(): void;
+    addVideoAt(x: number, y: number): void;
+    handleDroppedVideo(file: File, x: number, y: number): Promise<void>;
     renderBookmarkContent(el: HTMLElement, card: BookmarkCard): void;
     renderMapContent(el: HTMLElement, card: MapCard): void;
     resolveMapShortLink(card: MapCard, el: HTMLElement): Promise<void>;
@@ -191,6 +214,88 @@ export const cardsMediaMethods = {
     } else {
       el.createDiv({ cls: 'visual-notes-audio-missing', text: 'File not found' });
     }
+    this.appendResizeHandles(el);
+  },
+
+  // Chrome-free, like an image card: the picture is the point on a moodboard,
+  // and a filename header would cost ~35px of every card. The name is still
+  // reachable from the context menu and the card's tooltip.
+  renderVideoContent(this: FreeformRenderer, el: HTMLElement, card: VideoCard): void {
+    el.addClass('visual-notes-freeform-video-card');
+    const vf = this.app.vault.getAbstractFileByPath(card.source.path);
+    if (!(vf instanceof TFile)) {
+      el.createDiv({ cls: 'visual-notes-video-missing', text: 'File not found' });
+      this.appendResizeHandles(el);
+      return;
+    }
+
+    const video = el.createEl('video');
+    video.src = this.app.vault.getResourcePath(vf);
+    video.controls = true;
+    // Enough to draw the first frame as a still, and no more: a moodboard can
+    // hold dozens of these, and preloading them whole would read the lot off
+    // disk to show pictures nobody has asked to play yet.
+    video.preload = 'metadata';
+    video.addClass('visual-notes-video-player');
+    video.setAttribute('aria-label', vf.basename);
+    el.setAttribute('title', vf.name);
+
+    // Only the control bar is withheld from the canvas. Cards drag from
+    // pointerdown, so taking every press made the play button and scrubber
+    // work at the cost of the card no longer being draggable by its video --
+    // which is nearly all of it. Splitting by height gives the controls the
+    // strip they occupy and leaves the picture to the canvas, so a video card
+    // drags like any other. Both halves are covered by tests.
+    const onControls = (e: PointerEvent | MouseEvent) =>
+      isOnVideoControls(video.getBoundingClientRect(), e.clientY);
+    video.addEventListener('pointerdown', (e) => { if (onControls(e)) e.stopPropagation(); });
+    video.addEventListener('click', (e) => { if (onControls(e)) e.stopPropagation(); });
+    // Never the canvas's: double-clicking a video means fullscreen, which the
+    // browser does for us as long as nothing else claims the event.
+    video.addEventListener('dblclick', (e) => e.stopPropagation());
+
+    // mkv and avi generally cannot be decoded by Electron's Chromium, and mov
+    // depends on its codec. Rather than a dead black rectangle, offer the one
+    // thing that definitely works.
+    video.addEventListener('error', () => { this.showVideoFallback(el, card, vf); });
+
+    // Fit the card to the clip rather than letterboxing it -- a portrait phone
+    // video in a 16:9 box is mostly empty. Mirrors what measureImageH does for
+    // images, but from metadata we are loading anyway.
+    video.addEventListener('loadedmetadata', () => {
+      if (!video.videoWidth || !video.videoHeight) return;
+      const w = card.w ?? VIDEO_DEFAULT_W;
+      const h = Math.round(w * (video.videoHeight / video.videoWidth));
+      if (h < 1 || Math.abs(h - (card.h ?? VIDEO_DEFAULT_H)) < 2) return;
+      card.h = h;
+      const cardEl = this.cardEls.get(card.id);
+      if (cardEl) cardEl.style.height = `${h}px`;
+      this.scheduleSave();
+    });
+
+    this.appendResizeHandles(el);
+  },
+
+  /** Replaces an unplayable video with something that can still be acted on. */
+  showVideoFallback(this: FreeformRenderer, el: HTMLElement, card: VideoCard, vf: TFile): void {
+    el.empty();
+    el.addClass('is-unplayable');
+    const wrap = el.createDiv('visual-notes-video-fallback');
+    const iconEl = wrap.createDiv('visual-notes-video-fallback-icon');
+    setIcon(iconEl, 'file-video');
+    wrap.createDiv({ cls: 'visual-notes-video-fallback-name', text: vf.name });
+    wrap.createDiv({
+      cls: 'visual-notes-video-fallback-msg',
+      text: 'Obsidian can’t play this format on the canvas.',
+    });
+    const btn = wrap.createDiv({ cls: 'visual-notes-video-fallback-btn', text: 'Open externally' });
+    btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.app.workspace.getLeaf('tab').openFile(vf).catch(() => {
+        new Notice(`Could not open ${vf.name}.`);
+      });
+    });
     this.appendResizeHandles(el);
   },
 
@@ -537,6 +642,42 @@ export const cardsMediaMethods = {
       input.click();
     };
     new MediaSourceModal(this.app, 'Add audio', fromVault, fromUpload).open();
+  },
+
+  addVideo(this: FreeformRenderer): void { const p = this.centerPos(VIDEO_DEFAULT_W, VIDEO_DEFAULT_H); this.addVideoAt(p.x, p.y); },
+
+  addVideoAt(this: FreeformRenderer, x: number, y: number): void {
+    const createCard = (path: string) => {
+      const card: VideoCard = { id: crypto.randomUUID(), kind: 'video', x, y, w: VIDEO_DEFAULT_W, h: VIDEO_DEFAULT_H, z: this.nextZ(), source: { type: 'vault', path } };
+      this.pushUndo(); this.board.cards.push(card); void this.saveNow();
+      this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
+    };
+    const fromVault = () => new VaultVideoPickerModal(this.app, (f) => { void (async () => {
+      const newPath = await sortAssetFile(this.app, f);
+      createCard(newPath);
+    })(); }).open();
+    const fromUpload = () => {
+      const input = createEl('input');
+      input.type = 'file'; input.accept = VIDEO_EXTS.map(e => `.${e}`).join(',');
+      input.addEventListener('change', () => { void (async () => {
+        const file = input.files?.[0]; if (!file) return;
+        let path: string;
+        try { path = await saveNewAsset(this.app, await file.arrayBuffer(), safeVideoFilename(file.name)); }
+        catch { new Notice(`Failed to save ${file.name}.`); return; }
+        createCard(path);
+      })(); });
+      input.click();
+    };
+    new MediaSourceModal(this.app, 'Add video', fromVault, fromUpload).open();
+  },
+
+  async handleDroppedVideo(this: FreeformRenderer, file: File, x: number, y: number): Promise<void> {
+    let path: string;
+    try { path = await saveNewAsset(this.app, await file.arrayBuffer(), safeVideoFilename(file.name)); }
+    catch { new Notice(`Failed to save ${file.name}.`); return; }
+    const card: VideoCard = { id: crypto.randomUUID(), kind: 'video', x, y, w: VIDEO_DEFAULT_W, h: VIDEO_DEFAULT_H, z: this.nextZ(), source: { type: 'vault', path } };
+    this.pushUndo(); this.board.cards.push(card); await this.saveNow();
+    this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
   },
 
   addBookmark(this: FreeformRenderer): void { const p = this.centerPos(BOOKMARK_DEFAULT_W, BOOKMARK_DEFAULT_H); this.addBookmarkAt(p.x, p.y); },

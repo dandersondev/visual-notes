@@ -39,6 +39,22 @@ export interface VisualNotesFile {
   // which is what stops a failed read from overwriting a real board with an
   // empty one on the next autosave.
   unreadable?: boolean;
+
+  // Runtime-only, never serialized. The exact file text as of the last time we
+  // read or wrote this board — the revision our in-memory copy is derived
+  // from. writeBoardFile compares it against what is actually on disk so a
+  // renderer holding a board for hours can't overwrite an edit that arrived
+  // from another device in the meantime.
+  //
+  // The exact text rather than a hash, for two reasons: a hash trades
+  // correctness for bytes on a guard whose entire job is preventing data loss,
+  // and this string is the base a future three-way merge needs, so keeping it
+  // costs nothing that isn't already wanted.
+  //
+  // Safe to add here because visualNotesToCanvas builds the `vn` block field
+  // by field rather than spreading the board, so nothing unknown reaches the
+  // file — the same reason recoveredFromNativeEdit and unreadable are safe.
+  baseline?: string;
 }
 
 // ── Drawing (free-floating pen ink) ─────────────────────────────
@@ -383,6 +399,17 @@ export interface AudioCard extends BaseCard {
   title?: string;
 }
 
+// A vault video played in place on the canvas, rather than an icon you have to
+// open elsewhere. Deliberately has no title/caption field: the card is
+// chrome-free so nothing would render one, and nothing would write it either —
+// a declared field no code sets is how textScale ended up reachable only by
+// hand-editing the JSON. The display name comes from the path, as FileCard's
+// does.
+export interface VideoCard extends BaseCard {
+  kind: 'video';
+  source: { type: 'vault'; path: string };
+}
+
 export interface NoteLinkCard extends BaseCard {
   kind: 'note-link';
   path: string;
@@ -566,7 +593,7 @@ export interface CalendarCard extends BaseCard {
 // cards reusing the exact same render/edit code as their top-level form.
 export type ColumnChildCard =
   | TileCard | StickyCard | ChecklistCard | TableCard
-  | ImageCard | AudioCard | NoteLinkCard | BookmarkCard | SwatchCard | FileCard | CalloutCard;
+  | ImageCard | AudioCard | VideoCard | NoteLinkCard | BookmarkCard | SwatchCard | FileCard | CalloutCard;
 
 // A native-Canvas-style group frame: purely spatial, like Obsidian's own
 // Canvas groups — a labeled rectangle that visually encloses whatever
@@ -669,6 +696,6 @@ export interface CheckersCard extends BaseCard {
 
 export type Card =
   | TileCard | StickyCard | ChecklistCard | CommentCard | TableCard
-  | ImageCard | AudioCard | NoteLinkCard | BookmarkCard
+  | ImageCard | AudioCard | VideoCard | NoteLinkCard | BookmarkCard
   | KanbanColumnCard | KanbanBoardCard | ColumnCard | MapCard | SwatchCard | FileCard | CalloutCard
   | GroupCard | CalendarCard | CheckersCard | TextCard;

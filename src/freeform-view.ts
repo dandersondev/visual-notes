@@ -55,6 +55,12 @@ export class FreeformRenderer extends Component {
   marqueeEl!: HTMLElement;
   zoomPill!: HTMLElement;
   snapToggleBtn: HTMLElement | null = null;
+  // Switches Obsidian's own light/dark setting; deliberately NOT the board's
+  // own appearance, which boards could once pin for themselves and which was
+  // removed because two places to set it confused people. Null whenever the
+  // setting is off, and read back as such by refreshAppearanceButton — which
+  // the css-change listener calls whether or not the button was ever built.
+  appearanceBtn: HTMLElement | null = null;
   toolbarEl!: HTMLElement;
   fabEl: HTMLElement | null = null;
   // Bottom-left drop target — anything draggable (cards, kanban items,
@@ -266,6 +272,7 @@ export class FreeformRenderer extends Component {
     public penDrawOptions: PenDrawOptions = { ...DEFAULT_PEN_DRAW_OPTIONS },
     public onPenDrawOptionsChange?: (value: PenDrawOptions) => void,
     public panButton: 'middle' | 'right' | 'either' = 'middle',
+    public appearanceButtonEnabled = true,
   ) {
     super();
     this.vp = { ...(board.viewport ?? { x: 0, y: 0, zoom: 1 }) };
@@ -282,6 +289,12 @@ export class FreeformRenderer extends Component {
     // — onVaultRename re-renders, so registering there would stack a
     // duplicate listener per rename. Cleaned up via destroy() → unload().
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => this.onVaultRename(file, oldPath)));
+    // Keeps the theme toggle showing the right icon when the scheme changes
+    // anywhere else — Appearance settings, the command palette, a hotkey, or
+    // the system switching over on an "Adapt to system" vault. Registered
+    // here for the same reason as the rename listener above: render() runs
+    // again on every re-render, which would stack a duplicate each time.
+    this.registerEvent(this.app.workspace.on('css-change', () => this.refreshAppearanceButton()));
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────
@@ -350,6 +363,7 @@ export class FreeformRenderer extends Component {
     this.renderToolbar();
     this.renderAlignBar();
     this.renderZoomPill();
+    this.renderAppearanceButton();
     this.renderTrashZone();
     this.renderUndoRedoButtons();
     this.renderMinimap();
@@ -474,6 +488,7 @@ export class FreeformRenderer extends Component {
       case 'note-link': this.renderNoteLinkContent(el, card);  break;
       case 'image':     this.renderImageContent(el, card);     break;
       case 'audio':     this.renderAudioContent(el, card);     break;
+      case 'video':     this.renderVideoContent(el, card);     break;
       case 'bookmark':  this.renderBookmarkContent(el, card);  break;
       case 'kanban-column': this.renderKanbanColumnContent(el, card); break;
       case 'kanban-board': this.renderKanbanBoardContent(el, card); break;
@@ -689,6 +704,8 @@ export class FreeformRenderer extends Component {
       case 'image': raw = card.caption ?? ''; break;
       case 'bookmark': raw = card.title ?? ''; break;
       case 'file': raw = card.path.split('/').pop() ?? ''; break;
+      // No title field to fall back on by design, so the filename is the name.
+      case 'video': raw = card.source.path.split('/').pop()?.replace(/\.[^.]+$/, '') ?? ''; break;
       case 'callout': raw = card.text; break;
       case 'group': raw = card.label ?? ''; break;
     }

@@ -23,6 +23,20 @@ export const NATIVE_BAK_SUFFIX = '.native-backup.bak';
 // makes the damage recoverable without needing to know the cause first.
 export const EMPTIED_BAK_SUFFIX = '.before-empty.bak';
 
+// Written when a save finds the file already holds a revision we didn't write
+// and didn't load — another device, another pane, native Canvas, a git pull.
+// Holds the revision found on disk, so the save can still land without that
+// work being destroyed. Refreshed rather than kept-earliest, for the same
+// reason as EMPTIED_BAK_SUFFIX: each copy holds the other side's latest work,
+// so the newest is the fullest. One refreshing file also means a board being
+// autosaved against a busy sync can't spawn backups without bound.
+export const CONFLICT_BAK_SUFFIX = '.conflict.bak';
+
+// A file that changes between every attempt is either being written in a tight
+// loop by something else or is not going to settle; give up and let the
+// caller's save queue report it rather than spinning.
+const MAX_WRITE_ATTEMPTS = 3;
+
 // `overwrite: false` keeps the earliest copy (best when the current state is
 // the damaged one); `true` refreshes it (best when the current state is known
 // good and a newer snapshot is strictly more useful).
@@ -87,6 +101,10 @@ export async function readBoardFile(app: App, file: TFile): Promise<VisualNotesF
         await writeBackup(app, file.path + NATIVE_BAK_SUFFIX, raw, false);
         board.recoveredFromNativeEdit = true;
       }
+      // The revision this in-memory board is derived from. Every later write
+      // is checked against it, so a board held open for hours can't overwrite
+      // an edit that arrived from elsewhere in the meantime.
+      board.baseline = raw;
       return board;
     }
 
@@ -152,13 +170,125 @@ export async function isVisualNotesOwnedFile(app: App, file: TFile): Promise<boo
 
 // ── Write ─────────────────────────────────────────────────────
 
+/**
+ * Writes a board, refusing to destroy a revision it didn't expect.
+ *
+ * The problem this exists for is not a race. A renderer holds its whole board
+ * in memory from the moment it opens, so a save an hour later still carries
+ * that original snapshot — and writing it blindly overwrites anything that
+ * arrived in between, from another device, another pane, or a git pull. No
+ * amount of debouncing or serialization helps, because the two writes never
+ * had to overlap in the first place.
+ *
+ *   theirs == base  →  write ours
+ *   ours   == base  →  we changed nothing; their revision stands
+ *   otherwise       →  real conflict: back theirs up, then write ours
+ *
+ * The middle case is what keeps the guard from crying wolf: panning schedules
+ * a save, so without it, opening a board and scrolling while a sync landed
+ * would raise a conflict over a change the user never made. It is also what
+ * makes two panes on one board behave — a clean pane defers, a dirty pane
+ * conflicts, which is exactly right.
+ *
+ * Conflicts preserve rather than block, the same choice snapshotIfEmptying
+ * makes below: the user keeps working and their save lands, while the other
+ * revision is recoverable beside the board.
+ */
 export async function writeBoardFile(app: App, file: TFile, board: VisualNotesFile): Promise<void> {
   // A board we failed to read is a placeholder, not the user's data. Writing
   // it back is precisely how an unreadable file becomes an empty one.
   if (board.unreadable) return;
+  // Runs before the write, as it always has. Folding it into the process()
+  // callback below would move its snapshot to *after* the overwrite it exists
+  // to protect against. In the rare case where a conflict then stops the
+  // write, the extra backup holds the user's own good data — harmless.
   await snapshotIfEmptying(app, file, board);
-  const data = visualNotesToCanvas(board);
-  await app.vault.modify(file, JSON.stringify(data, null, 2));
+
+  const next = JSON.stringify(visualNotesToCanvas(board), null, 2);
+
+  for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
+    let onDisk: string | undefined = undefined;
+    let written = false;
+
+    // process() reads and writes as one atomic step. A plain read-then-write
+    // would leave a window for the file to change in between — the very bug
+    // this function exists to prevent, in miniature.
+    //
+    // The callback must stay synchronous, so it only decides: backups,
+    // notices and baseline updates all happen after it resolves. On a
+    // conflict it returns the file unchanged, which is what guarantees
+    // nothing is overwritten before the other revision is safely backed up.
+    await app.vault.process(file, (current) => {
+      onDisk = current;
+      // No baseline means a file we created rather than read — a seeded
+      // template, a brand-new board. There is no earlier revision to protect.
+      if (board.baseline === undefined || current === board.baseline) {
+        written = true;
+        return next;
+      }
+      return current;
+    });
+
+    if (written) {
+      // Load-bearing: without this the next save sees its own write as
+      // someone else's change, and every save from here on writes a conflict
+      // backup forever.
+      board.baseline = next;
+      return;
+    }
+
+    const theirs: string = onDisk ?? '';
+    if (!hasLocalEdits(board, next)) {
+      // Nothing of ours to save, so their revision simply stands. Adopting it
+      // as our base stops the next save re-reporting the same conflict.
+      board.baseline = theirs;
+      return;
+    }
+
+    await writeBackup(app, file.path + CONFLICT_BAK_SUFFIX, theirs, true);
+    new Notice(
+      `Visual Notes: "${file.basename}" was also changed somewhere else — another device, ` +
+      `or Obsidian's own Canvas view. Your version has been saved; the other one is in ` +
+      `"${file.name}${CONFLICT_BAK_SUFFIX}".`,
+      12000
+    );
+    // Their revision is safe on disk now, so take it as our base and let the
+    // loop write ours on top.
+    board.baseline = theirs;
+  }
+
+  // Only reachable if the file changed again between every single attempt.
+  // Throwing hands this to the caller's save queue, which tells the user their
+  // changes are still on screen — far better than returning as if it saved.
+  throw new Error(`"${file.name}" kept changing while Visual Notes tried to save it.`);
+}
+
+/**
+ * True if the in-memory board differs from the revision it was loaded from.
+ *
+ * Viewport is normalised out because panning is not content: it is stored in
+ * the file, and it schedules a save, so counting it would make simply looking
+ * around a board enough to raise a conflict.
+ *
+ * Anything unparseable falls back to a plain text comparison — that errs
+ * toward "we have edits", which errs toward preserving both sides.
+ */
+function hasLocalEdits(board: VisualNotesFile, serialized: string): boolean {
+  if (board.baseline === undefined) return true;
+  return contentKey(serialized) !== contentKey(board.baseline);
+}
+
+/** A board's text with view-only state stripped, for comparing content alone. */
+function contentKey(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown> & { vn?: Record<string, unknown> };
+    if (!parsed || typeof parsed !== 'object' || !parsed.vn || typeof parsed.vn !== 'object') return raw;
+    const vn = { ...parsed.vn };
+    delete vn.viewport;
+    return JSON.stringify({ ...parsed, vn });
+  } catch {
+    return raw;
+  }
 }
 
 /**

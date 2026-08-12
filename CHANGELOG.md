@@ -2,6 +2,18 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.1.27
+
+### Added
+- **Videos play on the canvas.** Drag a video into a board — from the file explorer, from your desktop, or with the new **Video** tool — and it becomes a player you can watch in place, instead of an icon you had to open somewhere else. Click the picture to play or pause, double-click for fullscreen, and drag the card by its picture as you would any other. The card takes the shape of the clip, so a portrait phone video isn't stranded in a letterbox. Boards you already have keep their file cards: right-click one pointing at a video and choose **Play on canvas** to turn it into a player. Because a video card is stored as an ordinary Canvas file node, the same board plays in Obsidian's own Canvas view too. Formats Obsidian can't decode (`.mkv` and `.avi` usually) say so on the card and offer to open the file externally, rather than sitting there as a black rectangle. Requested by a user building a moodboard; thank you.
+- **Visual Notes boards are labelled in the file explorer.** A board and one of Obsidian's own canvases are both `.canvas` files, which is the point — but it also meant they looked identical in the sidebar, with no way to tell which was which before opening it. Boards now carry a **VISUAL** tag in place of the usual **CANVAS** one, in Visual Notes' own colour. Nothing about the files changes, and you can turn it off under Settings → **Mark Visual Notes boards in the file explorer**.
+- **A light/dark button on every board.** In the bottom-right corner beside the zoom and snap controls, a sun/moon button switches Obsidian between light and dark — the whole app, the same setting as Appearance → **Base color scheme**, not just the board you are looking at. It follows the theme rather than the click, so it always shows where you actually are, including when you change the scheme from somewhere else. Turn it off under Settings → **Light/dark button on boards**.
+
+### Fixed
+- **Editing a board in two places no longer quietly loses one of them.** While a board is open, Visual Notes holds the whole thing in memory, and every save wrote that copy straight over the file — so if the board had changed in the meantime, that change was replaced with no warning and no copy kept. The two writes did not even have to be close together: a board left open in the morning would still overwrite an afternoon's work when it next saved. This affected far more than shared vaults — one person with a laptop and an iPad on Obsidian Sync hit exactly the same thing, as did Dropbox and Syncthing vaults, two Obsidian panes on the same board, and any edit made outside Obsidian.
+
+  Every save now checks the file first. If it holds a version Visual Notes was not expecting, that version is written beside the board as `YourBoard.canvas.conflict.bak` **before** your save lands, and a message tells you where it went — so both versions survive and you can put them back together in your own time. If you have not actually changed anything yourself, the other version is simply left alone and nothing is written at all. Panning and zooming don't count as changes, so just looking around a board never triggers any of this.
+
 ## 1.1.26
 
 ### Added

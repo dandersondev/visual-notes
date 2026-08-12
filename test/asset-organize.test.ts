@@ -25,6 +25,16 @@ describe('sortAssetFile', () => {
     expect(await sortAssetFile(vault.toApp(), other)).toBe('_Assets/Other/d.zip');
   });
 
+  it('files .webm as video, since that is what it usually is', async () => {
+    // webm is a container for both, and it appears in both extension lists.
+    // A dropped .webm renders as a video card, so filing it under Audio would
+    // put the file somewhere its own card contradicts. Asserted rather than
+    // left to list order, because the fix here *was* list order.
+    const vault = new FakeVault();
+    const clip = vault.putText('clip.webm', 'x');
+    expect(await sortAssetFile(vault.toApp(), clip)).toBe('_Assets/Video/clip.webm');
+  });
+
   it('returns the path unchanged when the file is already correctly sorted', async () => {
     const vault = new FakeVault();
     const file = vault.putText('_Assets/Images/cat.png', 'x');

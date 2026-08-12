@@ -6,14 +6,21 @@ import { readBoardFile, writeBoardFile, isVisualNotesOwnedFile, ensureDir } from
 
 const IMAGE_EXTS = ['jpg','jpeg','png','gif','webp','svg','bmp','tiff','tif','avif'];
 const AUDIO_EXTS = ['mp3','wav','ogg','flac','aac','m4a','opus','webm'];
-const VIDEO_EXTS = ['mp4','mkv','mov','avi','m4v'];
+// Kept in step with VIDEO_EXTS in freeform-view-shared.ts, which decides what
+// becomes a video card — a file rendering as video while being filed under
+// Audio would be its own small confusion.
+const VIDEO_EXTS = ['mp4','webm','mov','m4v','ogv','mkv','avi'];
 const DOC_EXTS   = ['pdf'];
 
 function assetSubfolder(ext: string): string {
   const e = ext.toLowerCase();
   if (IMAGE_EXTS.includes(e)) return 'Images';
-  if (AUDIO_EXTS.includes(e)) return 'Audio';
+  // Video before audio, because webm is in both lists and is far more often a
+  // video — and since a dropped .webm now renders as a video card, filing it
+  // under Audio would put the file somewhere its own card contradicts. Only
+  // affects newly sorted files; nothing already in _Assets is moved.
   if (VIDEO_EXTS.includes(e)) return 'Video';
+  if (AUDIO_EXTS.includes(e)) return 'Audio';
   if (DOC_EXTS.includes(e))   return 'Documents';
   return 'Other';
 }

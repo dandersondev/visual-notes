@@ -5,7 +5,14 @@
 // each one isn't hand-rolling its own fake Vault.
 import { TFile, TFolder, type App } from 'obsidian';
 
-export interface FakeFile { path: string; name: string; basename: string; extension: string; }
+export interface FakeFile {
+  path: string; name: string; basename: string; extension: string;
+  // Real TFiles carry this, and production code reads it — renderFileContent
+  // shows a file's size, and the explorer decorator keys its cache on mtime.
+  // Without it those paths throw on a file that exists, which is a fake
+  // problem rather than a real one.
+  stat: { ctime: number; mtime: number; size: number };
+}
 export interface FakeFolder { path: string; name: string; }
 
 // A real instance of the stubbed TFile class (not a plain object) — some
@@ -17,7 +24,7 @@ function makeFile(path: string): FakeFile {
   const basename = dot > 0 ? name.slice(0, dot) : name;
   const extension = dot > 0 ? name.slice(dot + 1) : '';
   const file = new TFile() as unknown as FakeFile;
-  Object.assign(file, { path, name, basename, extension });
+  Object.assign(file, { path, name, basename, extension, stat: { ctime: 0, mtime: 0, size: 0 } });
   return file;
 }
 
@@ -36,6 +43,7 @@ export class FakeVault {
 
   putText(path: string, content: string): FakeFile {
     const file = makeFile(path);
+    file.stat.size = content.length;
     this.entries.set(path, { file, content });
     return file;
   }
@@ -56,6 +64,21 @@ export class FakeVault {
     this.entries.delete(path);
   }
 
+  private nextReadHook: (() => void) | null = null;
+
+  /**
+   * Runs `fn` once, immediately after the next `read()` returns its content —
+   * so the read sees the old text and anything `fn` writes lands just after.
+   *
+   * That models a real window in writeBoardFile: snapshotIfEmptying reads the
+   * file, and only then does process() run. A test can drop a competing
+   * revision into that gap and check the guard still catches it, which is the
+   * property `process()` buys over a plain read-then-write.
+   */
+  onNextRead(fn: () => void): void {
+    this.nextReadHook = fn;
+  }
+
   toApp(): App {
     const vault = {
       getAbstractFileByPath: (path: string) => {
@@ -68,7 +91,22 @@ export class FakeVault {
       read: async (file: FakeFile) => {
         const entry = this.entries.get(file.path);
         if (!entry) throw new Error(`FakeVault: no such file ${file.path}`);
-        return entry.content as string;
+        const content = entry.content as string;
+        const hook = this.nextReadHook;
+        this.nextReadHook = null;
+        hook?.();
+        return content;
+      },
+      // Obsidian's atomic read-modify-write. Faithful in the one way that
+      // matters here: the callback is handed the content as it is at call
+      // time, synchronously, and whatever it returns is what lands — there is
+      // no gap in between for anything else to slip through.
+      process: async (file: FakeFile, fn: (data: string) => string) => {
+        const entry = this.entries.get(file.path);
+        if (!entry) throw new Error(`FakeVault: no such file ${file.path}`);
+        const next = fn(entry.content as string);
+        entry.content = next;
+        return next;
       },
       modify: async (file: FakeFile, content: string) => {
         const entry = this.entries.get(file.path);

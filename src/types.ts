@@ -53,6 +53,21 @@ export interface VisualNotesSettings {
   clipFolder?: string;              // vault folder watched for new clips
   clipBoardPath?: string;           // board the clips are added to
   clipAutoImport?: boolean;         // import on startup (and, from v2, live); default true when a folder is set
+
+  // Tags .canvas files that are Visual Notes boards as VISUAL in the file
+  // explorer, so they read apart from Obsidian's own canvases. A setting
+  // because it is the one feature that depends on Obsidian's internal
+  // markup — if a future release ever breaks it, this is the off switch
+  // without waiting for one of ours. Default on.
+  explorerBoardTint?: boolean;
+
+  // Light/dark button in a board's bottom-right corner. A setting for two
+  // separate reasons, either of which alone would justify one: it is the
+  // only control in the plugin that changes Obsidian outside the board, and
+  // it rests on undocumented API (see theme-scheme.ts), so it is the second
+  // feature that could be broken by an Obsidian release rather than by us.
+  // Default on.
+  appearanceButton?: boolean;
 }
 
 export const DEFAULT_SETTINGS: VisualNotesSettings = {
