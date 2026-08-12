@@ -111,6 +111,14 @@ export class VisualNotesSettingsTab extends PluginSettingTab {
         { name: 'Comment author name', desc: 'Shown on new comments and replies you add to a board. Defaults to "Anonymous" when left blank.',
           render: (s) => this.buildCommentAuthorName(s) },
       ] },
+      { type: 'group', heading: 'Web clips', items: [
+        { name: 'Clippings folder', desc: 'Notes saved into this folder are added to the board below. Point Obsidian Web Clipper’s note location here to send clips straight to a board.',
+          render: (s) => this.buildClipFolder(s) },
+        { name: 'Board for clips', desc: 'Where clipped notes appear, as cards below whatever is already on it. Must be a freeform board.',
+          render: (s) => this.buildClipBoard(s) },
+        { name: 'Import clips automatically', desc: 'Check the folder when Obsidian starts and add anything new. Turn this off to only import when you run the "Import web clips now" command.',
+          render: (s) => this.buildClipAutoImport(s) },
+      ] },
       { type: 'group', heading: 'Assets', items: [
         { name: 'Auto-sort assets', desc: 'All images, audio, video, and documents imported or linked into a board are automatically moved to _Assets/Images/, _Assets/Audio/, etc. in the vault root. Always on.',
           render: (s) => this.buildAutoSortAssets(s) },
@@ -177,6 +185,11 @@ export class VisualNotesSettingsTab extends PluginSettingTab {
     this.buildDefaultStickyColor(new Setting(containerEl));
     this.buildCommentAuthorName(new Setting(containerEl));
 
+    new Setting(containerEl).setName('Web clips').setHeading();
+    this.buildClipFolder(new Setting(containerEl));
+    this.buildClipBoard(new Setting(containerEl));
+    this.buildClipAutoImport(new Setting(containerEl));
+
     new Setting(containerEl).setName('Assets').setHeading();
     this.buildAutoSortAssets(new Setting(containerEl));
     this.buildAutoRelinkOnOpen(new Setting(containerEl));
@@ -237,6 +250,88 @@ export class VisualNotesSettingsTab extends PluginSettingTab {
         })(); })
       );
     }
+  }
+
+  // ── Web clips ───────────────────────────────────────────────
+  //
+  // Described as a folder rather than as "Obsidian Web Clipper support",
+  // because that is what it is: anything that writes a note into the folder
+  // — the Web Clipper, the iOS share sheet, another tool — lands on the
+  // board. Naming the Clipper in the description helps people find it
+  // without narrowing what it does.
+
+  private buildClipFolder(setting: Setting): void {
+    setting
+      .setName('Clippings folder')
+      .setDesc('Notes saved into this folder are added to the board below. Point Obsidian Web Clipper’s note location here to send clips straight to a board.');
+
+    const folder = this.plugin.settings.clipFolder;
+    const pathDisplay = setting.controlEl.createSpan('visual-notes-modal-path-display' + (folder ? '' : ' is-empty'));
+    pathDisplay.setText(folder || 'None');
+
+    setting.addButton(btn =>
+      btn.setButtonText('Browse…').onClick(() => {
+        new FolderSuggestModal(this.app, (chosen) => { void (async () => {
+          // '' is the vault root, which would sweep in every note in the
+          // vault — treated as "unset" instead.
+          this.plugin.settings.clipFolder = chosen?.path || undefined;
+          await this.plugin.saveSettings();
+          this.refresh();
+        })(); }).open();
+      })
+    );
+
+    if (folder) {
+      setting.addButton(btn =>
+        btn.setButtonText('Clear').onClick(() => { void (async () => {
+          this.plugin.settings.clipFolder = undefined;
+          await this.plugin.saveSettings();
+          this.refresh();
+        })(); })
+      );
+    }
+  }
+
+  private buildClipBoard(setting: Setting): void {
+    setting
+      .setName('Board for clips')
+      .setDesc('Where clipped notes appear, as cards below whatever is already on it. Must be a freeform board.');
+
+    const board = this.plugin.settings.clipBoardPath;
+    const pathDisplay = setting.controlEl.createSpan('visual-notes-modal-path-display' + (board ? '' : ' is-empty'));
+    pathDisplay.setText(board || 'None');
+
+    setting.addButton(btn =>
+      btn.setButtonText('Browse…').onClick(() => {
+        new BoardPickerModal(this.app, (file) => { void (async () => {
+          this.plugin.settings.clipBoardPath = file.path;
+          await this.plugin.saveSettings();
+          this.refresh();
+        })(); }).open();
+      })
+    );
+
+    if (board) {
+      setting.addButton(btn =>
+        btn.setButtonText('Clear').onClick(() => { void (async () => {
+          this.plugin.settings.clipBoardPath = undefined;
+          await this.plugin.saveSettings();
+          this.refresh();
+        })(); })
+      );
+    }
+  }
+
+  private buildClipAutoImport(setting: Setting): void {
+    setting
+      .setName('Import clips automatically')
+      .setDesc('Check the folder when Obsidian starts and add anything new. Turn this off to only import when you run the "Import web clips now" command.')
+      .addToggle(t =>
+        t.setValue(this.plugin.settings.clipAutoImport !== false).onChange((v) => { void (async () => {
+          this.plugin.settings.clipAutoImport = v;
+          await this.plugin.saveSettings();
+        })(); })
+      );
   }
 
   // Stores a folder path rather than a TFolder: settings are serialised to

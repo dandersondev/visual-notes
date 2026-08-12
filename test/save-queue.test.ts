@@ -10,6 +10,55 @@ import { SaveQueue } from '../src/save-queue';
 beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); });
 
+describe('SaveQueue: cancel', () => {
+  it('drops a debounced write that has not started yet', async () => {
+    // Teardown case: a queued web-clip import must not fire against a plugin
+    // that has since been unloaded.
+    const write = vi.fn().mockResolvedValue(undefined);
+    const q = new SaveQueue(write, vi.fn(), 100);
+
+    q.schedule();
+    q.cancel();
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('leaves a write that is already running alone', async () => {
+    // Abandoning an in-flight write is how state mid-save gets lost.
+    let release!: () => void;
+    const write = vi.fn().mockReturnValue(new Promise<void>(r => { release = r; }));
+    const q = new SaveQueue(write, vi.fn(), 100);
+
+    q.schedule();
+    await vi.advanceTimersByTimeAsync(100); // write starts
+    expect(write).toHaveBeenCalledTimes(1);
+
+    q.cancel();
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(write).toHaveBeenCalledTimes(1); // completed, not aborted
+  });
+
+  it('can be scheduled again after cancelling', async () => {
+    const write = vi.fn().mockResolvedValue(undefined);
+    const q = new SaveQueue(write, vi.fn(), 100);
+
+    q.schedule();
+    q.cancel();
+    q.schedule();
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
+  it('is harmless when nothing is scheduled', () => {
+    const q = new SaveQueue(vi.fn().mockResolvedValue(undefined), vi.fn(), 100);
+    expect(() => { q.cancel(); q.cancel(); }).not.toThrow();
+  });
+});
+
 describe('SaveQueue: debounce / scheduling', () => {
   it('coalesces a burst of schedule() calls into exactly one write', async () => {
     const write = vi.fn().mockResolvedValue(undefined);

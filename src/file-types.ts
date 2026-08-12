@@ -387,6 +387,15 @@ export interface NoteLinkCard extends BaseCard {
   kind: 'note-link';
   path: string;
   displayMode: 'preview' | 'title-only';
+
+  // Set only on cards created by the web-clip importer. Declared rather than
+  // left implicit: stashable() already round-trips any non-positional field,
+  // so these would survive undeclared, but a field nothing declares is a
+  // field the next person deletes. Enrichment only — the importer never
+  // requires a URL to be present, since a clip without one still needs to
+  // appear rather than silently vanish.
+  clipSourceUrl?: string;
+  clipImportedAt?: number;
 }
 
 export interface BookmarkCard extends BaseCard {

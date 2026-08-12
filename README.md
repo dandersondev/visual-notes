@@ -1,6 +1,12 @@
 ﻿# Visual Notes
 
-A visual workspace for [Obsidian](https://obsidian.md) — Milanote/Notion/Trello-style boards with icon tiles, a freeform canvas, kanban, tables, sticky notes, checklists, callouts, maps, colour swatches, and more. Everything is stored in a real, spec-compliant `.canvas` file in your vault, and boards nest inside each other and inside Obsidian's own native Canvas files too.
+**Visual notes, planning and organisation.**
+
+Boards that live in your [Obsidian](https://obsidian.md) vault as real Canvas files — so they open in Obsidian's own Canvas view, nest inside each other, and outlast the plugin that made them.
+
+A place to think in space rather than in a list, the way you would in Milanote, Notion or Trello: plan a project across a wall of sticky notes, keep a reading list as icon tiles, run a kanban board, draw over the top of it, and connect the pieces with labelled lines.
+
+**How is this different from Obsidian's Canvas?** It *is* Canvas — the same spec-compliant `.canvas` file, sitting in your vault, openable in the native view. Visual Notes adds what Canvas leaves out: kanban boards, tables, checklists, calendars, columns, group frames, pen and highlighter drawing, and boards that nest inside one another.
 
 ---
 

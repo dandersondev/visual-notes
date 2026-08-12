@@ -266,6 +266,39 @@ export function isValidURL(text: string): boolean {
   catch { return false; }
 }
 
+/**
+ * Opens a link in the browser — but only if it really is a web link.
+ *
+ * Every URL that reaches here can have come from the *file* rather than from
+ * this session's typing: a board someone shares carries whatever its author
+ * put in it, and the deserializer builds cards straight from the JSON
+ * without re-checking their URLs (see canvas-format's bookmark case). The
+ * creation paths do validate, so this is the same check applied at the point
+ * of use, which is the only place that sees a board authored elsewhere.
+ *
+ * It matters most for window.open specifically: a `javascript:` URL there
+ * executes in the opened document rather than simply failing to load, so an
+ * unchecked open turns "click a card on a shared board" into running someone
+ * else's script.
+ */
+export function openExternalUrl(url: string | undefined | null): void {
+  if (!url || !isValidURL(url)) {
+    new Notice('Visual Notes: that link isn’t a valid web address, so it wasn’t opened.', 6000);
+    return;
+  }
+  window.open(url, '_blank');
+}
+
+/**
+ * A remote image URL, or null if it isn't one worth trusting to an <img src>.
+ *
+ * For vault files use app.vault.getResourcePath() instead — its `app:` URLs
+ * are not web URLs and would (correctly) fail this check.
+ */
+export function safeRemoteImageSrc(url: string | undefined | null): string | null {
+  return url && isValidURL(url) ? url : null;
+}
+
 // ── Helper modals ──────────────────────────────────────────────
 
 export class NoteLinkPickerModal extends FuzzySuggestModal<TFile> {

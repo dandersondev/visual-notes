@@ -69,10 +69,10 @@ export function normalizeSettings(s: VisualNotesSettings): VisualNotesSettings {
   for (const key of Object.keys(ENUMS) as (keyof typeof ENUMS)[]) {
     if (out[key] !== undefined && !ENUMS[key].includes(out[key])) delete out[key];
   }
-  for (const key of ['defaultBoardPath', 'defaultNewBoardFolder', 'defaultStickyColor', 'commentAuthorName', 'dotColor', 'canvasBgColor'] as const) {
+  for (const key of ['defaultBoardPath', 'defaultNewBoardFolder', 'defaultStickyColor', 'commentAuthorName', 'dotColor', 'canvasBgColor', 'clipFolder', 'clipBoardPath'] as const) {
     if (out[key] !== undefined && typeof out[key] !== 'string') delete out[key];
   }
-  for (const key of ['v2migrationDone', 'autoRelinkOnOpen', 'cardDragAnimation', 'largeKanbanItems', 'snapToGrid'] as const) {
+  for (const key of ['v2migrationDone', 'autoRelinkOnOpen', 'cardDragAnimation', 'largeKanbanItems', 'snapToGrid', 'clipAutoImport'] as const) {
     if (out[key] !== undefined && typeof out[key] !== 'boolean') delete out[key];
   }
   for (const key of ['bookmarkCacheDays', 'dotSize', 'snapGridSize', 'trashZoneSize', 'cardDragAnimationIntensity'] as const) {

@@ -1,6 +1,6 @@
 import { FileView, WorkspaceLeaf, TFile, Notice, setIcon } from 'obsidian';
 import type VisualNotesPlugin from './main';
-import { VisualNotesFile } from './file-types';
+import { Card, VisualNotesFile } from './file-types';
 import { readBoardFile, writeBoardFile, classifyCanvasFile, NATIVE_BAK_SUFFIX } from './file-io';
 import { GridRenderer } from './grid-view';
 import { FreeformRenderer } from './freeform-view';
@@ -152,6 +152,54 @@ export class VisualNotesView extends FileView {
     if (!prev) return;
     this.isInternalNavigation = true;
     await this.leaf.setViewState({ type: VISUAL_NOTES_VIEW_TYPE, state: { file: prev.path } });
+  }
+
+  // ── Web-clip import ──────────────────────────────────────────
+  //
+  // The importer can't write to a board's file while a view is showing it:
+  // the renderer holds the whole board in memory and its next save would
+  // overwrite the file underneath. So an open board is mutated through its
+  // renderer instead, and these three methods are the boundary the importer
+  // uses rather than reaching for the private renderer directly.
+
+  /** True if this view is currently showing the board at `path`. */
+  isShowingBoard(path: string): boolean {
+    return this.file?.path === path;
+  }
+
+  /** Writes out anything this view has pending, so a later read sees it. */
+  async flushPendingSave(): Promise<void> {
+    const r = this.renderer;
+    if (r instanceof FreeformRenderer && r.saveQueue.hasPendingWork) await r.saveNow();
+  }
+
+  /** Re-reads this view's file and re-renders, discarding in-memory state. */
+  async reloadFromDisk(): Promise<void> {
+    if (!this.file) return;
+    const board = await readBoardFile(this.app, this.file);
+    if (board.unreadable) return;
+    await this.renderBoard(board, this.file);
+  }
+
+  /**
+   * Adds cards to the open board through its live renderer.
+   *
+   * Returns the number added, or null if this view can't take them — a grid
+   * board, or no renderer yet — so the caller can tell "nothing to add" (0)
+   * apart from "not applicable here" (null) rather than guessing.
+   */
+  async addCardsLive(build: (board: VisualNotesFile) => Card[]): Promise<number | null> {
+    const r = this.renderer;
+    if (!(r instanceof FreeformRenderer)) return null;
+    const cards = build(r.board);
+    if (cards.length === 0) return 0;
+    r.pushUndo();
+    for (const card of cards) {
+      r.board.cards.push(card);
+      r.createCardEl(card);
+    }
+    await r.saveNow();
+    return cards.length;
   }
 
   // ── Rendering ────────────────────────────────────────────────

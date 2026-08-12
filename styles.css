@@ -4447,6 +4447,51 @@ input.visual-notes-accent-pop-hex {
 
 .visual-notes-notelink-preview > * { pointer-events: none; }
 
+/* Clipped-page chrome: cover image and source domain, shown above the
+   article for a note whose properties carry a source URL. Deliberately the
+   same shape as a bookmark card's — a page saved into the vault and a page
+   merely linked to should read as siblings. */
+.visual-notes-notelink-cover {
+  flex: 0 0 auto;
+  height: 96px;
+  overflow: hidden;
+  background: var(--background-secondary);
+}
+.visual-notes-notelink-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.visual-notes-notelink-source {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  font-size: calc(11px * var(--vn-text-mult, 1));
+  color: var(--text-muted);
+  background: var(--visual-notes-card-bg);
+  border-bottom: 1px solid var(--background-modifier-border);
+  min-width: 0;
+}
+.visual-notes-notelink-source.is-clickable { cursor: pointer; }
+.visual-notes-notelink-source.is-clickable:hover { color: var(--text-accent); }
+.visual-notes-notelink-source-icon {
+  display: flex;
+  flex: 0 0 auto;
+}
+.visual-notes-notelink-source-icon svg {
+  width: 12px;
+  height: 12px;
+}
+.visual-notes-notelink-source-domain {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── Image card ─────────────────────────────────────────────── */
 
 .visual-notes-freeform-image-card {

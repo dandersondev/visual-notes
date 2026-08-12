@@ -28,7 +28,7 @@ import {
   DRAG_THRESHOLD, IMAGE_EXTS,
   resolveDefaultStickyColor,
   AppWithPrivateAPIs, KANBAN_BOARD_MIN_W, KanbanItemsOwner,
-  isValidURL, NoteLinkPickerModal, VaultAudioPickerModal, formatDueDate,
+  isValidURL, openExternalUrl, NoteLinkPickerModal, VaultAudioPickerModal, formatDueDate,
   dueUrgency, DueDateModal,
   KanbanItemUrlModal, KanbanItemImageSuggestModal,
   KanbanItemColorModal, WipLimitModal, TagInputModal,
@@ -876,7 +876,7 @@ export const cardsKanbanMethods = {
       setIcon(playBadge, 'play');
       videoWrap.addEventListener('click', (e) => {
         e.stopPropagation();
-        window.open(item.linkUrl, '_blank');
+        openExternalUrl(item.linkUrl);
       });
     }
 
@@ -932,7 +932,7 @@ export const cardsKanbanMethods = {
         pill.createSpan({ text: host });
         pill.addEventListener('click', (e) => {
           e.stopPropagation();
-          window.open(item.linkUrl, '_blank');
+          openExternalUrl(item.linkUrl);
         });
       }
       if (item.tags) {
@@ -1165,7 +1165,7 @@ export const cardsKanbanMethods = {
         }).open();
       }));
       if (item.linkUrl) {
-        menu.addItem(i => i.setTitle('Open link').setIcon('link').onClick(() => window.open(item.linkUrl, '_blank')));
+        menu.addItem(i => i.setTitle('Open link').setIcon('link').onClick(() => openExternalUrl(item.linkUrl)));
         menu.addItem(i => i.setTitle('Remove web link').setIcon('unlink').onClick(() => {
           this.pushUndo(); item.linkUrl = undefined;
           owner.rebuild(); this.scheduleSave();

@@ -27,6 +27,14 @@ export class Notice {
   constructor(_message: string | DocumentFragment, _duration?: number) {}
 }
 
+// Mirrors Obsidian's own implementation: collapse repeated and backslash
+// separators, strip leading/trailing slashes, NFC-normalise, and return '/'
+// for what's left of an empty path.
+export function normalizePath(path: string): string {
+  const p = path.replace(/([\\/])+/g, '/').replace(/(^\/+|\/+$)/g, '').normalize('NFC');
+  return p || '/';
+}
+
 export function setIcon(_el: HTMLElement, _iconId: string): void {}
 
 export function setTooltip(_el: HTMLElement, _tooltip: string, _options?: unknown): void {}

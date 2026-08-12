@@ -2,6 +2,15 @@ import { Plugin, TFile, TFolder, TAbstractFile, FileView, Menu, Notice } from 'o
 import { VisualNotesView, VISUAL_NOTES_VIEW_TYPE, NATIVE_CANVAS_VIEW_TYPE } from './view';
 import { VisualNotesSettingsTab } from './settings';
 import { VisualNotesSettings, DEFAULT_SETTINGS } from './types';
+import { Card, VisualNotesFile } from './file-types';
+import {
+  addClipsToBoard, announceClipImport, clipFolderExists, listClipFiles, shouldQueueClip,
+} from './web-clip-import';
+import { SaveQueue } from './save-queue';
+
+// Long enough that clipping several pages in a row costs one board write
+// rather than one each, short enough that a single clip still feels immediate.
+const CLIP_IMPORT_DEBOUNCE_MS = 800;
 import { normalizeSettings } from './settings-validate';
 import { CreateBoardModal, TemplatePickerModal, TemplateChoice } from './create-board-modal';
 import { needsMigration, migrateV1toV2 } from './migration';
@@ -98,6 +107,16 @@ export default class VisualNotesPlugin extends Plugin {
       callback: () => { void this.openDefaultBoard(); },
     });
 
+    // Command: pull in any web clips not already on the board. Exists partly
+    // as recovery: clips made while Obsidian was closed never fire a vault
+    // event we could act on, and a sync can deliver a batch at any moment.
+    // Safe to run repeatedly — the import skips whatever is already there.
+    this.addCommand({
+      id: 'import-web-clips',
+      name: 'Import web clips now',
+      callback: () => { void this.importWebClips({ silent: false }); },
+    });
+
     // Command: create a new board
     this.addCommand({
       id: 'create-board',
@@ -175,10 +194,137 @@ export default class VisualNotesPlugin extends Plugin {
       await this.runMigrationIfNeeded();
       await this.sweepOpenCanvasLeaves();
 
+      // Catch up on clips that arrived while Obsidian wasn't running, which
+      // no vault event will ever report. Only safe because the import skips
+      // paths already on the board — without that, this would re-add every
+      // clip ever made, every launch.
+      if (this.settings.clipAutoImport !== false) await this.importWebClips({ silent: true });
+
+      // Only now start listening. Registered here rather than in onload
+      // because vault load emits 'create' for every existing file, so an
+      // earlier registration would queue the entire clippings folder on
+      // every launch — the reconcile above already covers that ground, once,
+      // deliberately.
+      this.registerEvent(this.app.vault.on('create', (file) => { this.queueClip(file); }));
+      // 'rename' as well as 'create': sync and other tools frequently *move*
+      // a note into the folder rather than creating it there, and a create
+      // listener alone never sees those at all.
+      this.registerEvent(this.app.vault.on('rename', (file) => { this.queueClip(file); }));
+
       if (this.settings.openOnStartup) {
         await this.openDefaultBoard();
       }
     });
+  }
+
+  override onunload(): void {
+    // A debounced clip import must not fire against a plugin that has been
+    // disabled. Nothing is lost by dropping it: the queue only holds paths,
+    // and the startup reconcile picks up anything missed the next time the
+    // plugin loads. That is the same idempotence the whole feature rests on.
+    this.clipQueue?.cancel();
+    this.clipPending.clear();
+  }
+
+  // ── Web clips ────────────────────────────────────────────────
+
+  // Paths waiting to be imported, drained by clipQueue. A set because the
+  // same note can raise several events (create then rename) before the queue
+  // fires, and because a batch of clips should cost one board write.
+  private clipPending = new Set<string>();
+  private clipQueue: SaveQueue | null = null;
+
+  /** Queues a vault event's file for import, if it looks like a clip. */
+  private queueClip(file: TAbstractFile): void {
+    if (!(file instanceof TFile)) return;
+    if (!shouldQueueClip(file.path, file.extension, this.settings)) return;
+    this.clipPending.add(file.path);
+    // Reuses the board save queue rather than a second debouncer: it already
+    // coalesces a burst into one run and refuses to start a second run while
+    // one is in flight, which is exactly what a batch of clips needs.
+    this.clipQueue ??= new SaveQueue(
+      () => this.drainClipQueue(),
+      (err) => { console.error('Visual Notes: failed to import web clips', err); },
+      CLIP_IMPORT_DEBOUNCE_MS,
+    );
+    this.clipQueue.schedule();
+  }
+
+  /** Imports everything queued since the last run, as a single batch. */
+  private async drainClipQueue(): Promise<void> {
+    const paths = [...this.clipPending];
+    this.clipPending.clear();
+    if (paths.length === 0) return;
+    const result = await addClipsToBoard(
+      this.app, this.settings.clipBoardPath, paths,
+      (boardPath, add) => this.addToOpenBoard(boardPath, add),
+    );
+    // silent: true only suppresses "nothing to do" — an actual import still
+    // announces itself, which is the whole point of it being automatic.
+    announceClipImport(result, true);
+  }
+
+  /**
+   * Adds every clip in the configured folder that isn't already on the
+   * configured board.
+   *
+   * `silent` suppresses the "nothing to do" message so the startup pass is
+   * quiet on a normal launch, while the manual command always says what it
+   * did — a command that appears to do nothing reads as broken.
+   */
+  async importWebClips(opts: { silent: boolean }): Promise<void> {
+    const { clipFolder, clipBoardPath } = this.settings;
+    if (!clipFolder || !clipBoardPath) {
+      announceClipImport(
+        { added: 0, alreadyPresent: 0, refusal: 'No clippings folder and board are set yet. Choose them in Visual Notes settings.' },
+        opts.silent,
+      );
+      return;
+    }
+    if (!clipFolderExists(this.app, clipFolder)) {
+      announceClipImport(
+        { added: 0, alreadyPresent: 0, refusal: `The clippings folder ("${clipFolder}") doesn't exist.` },
+        opts.silent,
+      );
+      return;
+    }
+    const paths = listClipFiles(this.app, clipFolder).map(f => f.path);
+    const result = await addClipsToBoard(
+      this.app, clipBoardPath, paths,
+      (boardPath, add) => this.addToOpenBoard(boardPath, add),
+    );
+    announceClipImport(result, opts.silent);
+  }
+
+  /**
+   * Adds cards to a board that is open in one or more views, or returns null
+   * if none is showing it.
+   *
+   * The ordering here is the whole point. Flush every open view first, so no
+   * unsaved edit is lost; then reload the one we're about to mutate, so its
+   * in-memory board includes what the others just wrote — skip that and its
+   * save would quietly undo them. The rest are reloaded afterwards so they
+   * show the new cards instead of holding a board that is now stale.
+   */
+  private async addToOpenBoard(
+    boardPath: string,
+    add: (board: VisualNotesFile) => Card[],
+  ): Promise<number | null> {
+    const views = this.app.workspace.getLeavesOfType(VISUAL_NOTES_VIEW_TYPE)
+      .map(leaf => leaf.view)
+      .filter((v): v is VisualNotesView => v instanceof VisualNotesView && v.isShowingBoard(boardPath));
+    if (views.length === 0) return null;
+
+    for (const v of views) await v.flushPendingSave();
+    const [canonical, ...rest] = views;
+    await canonical.reloadFromDisk();
+    const added = await canonical.addCardsLive(add);
+    // null means this view can't take them (a grid board). Reporting null
+    // upward sends the caller down the on-disk path, which reads the board
+    // and refuses with a reason rather than failing silently here.
+    if (added === null) return null;
+    for (const v of rest) await v.reloadFromDisk();
+    return added;
   }
 
   async loadSettings(): Promise<void> {

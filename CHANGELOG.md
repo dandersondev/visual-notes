@@ -2,6 +2,19 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.1.26
+
+### Added
+- **Web clips land on a board by themselves.** Set a **clippings folder** and a **board for clips** under Settings → **Web clips**, then point [Obsidian Web Clipper](https://obsidian.md/help/web-clipper)'s note location at that folder: everything you clip appears on the board as a card, arranged in rows below whatever is already there. It works on anything that writes a note into that folder, not only the Web Clipper — the iOS share sheet and other tools land there too. Clips made while Obsidian was closed are picked up the next time it starts, and **Import web clips now** does the same on demand. Nothing is ever added twice, however it arrives.
+- **Clipped pages look like clipped pages.** A note saved from the web now shows the article's real title (not the sanitised filename), a clickable link back to the site it came from, and its cover image where there is one — with the properties block no longer dumped at the top of the card as raw text. **Dragging a clipping onto a canvas** now creates that same card rather than a plain icon tile.
+
+### Changed
+- **The README now says what Visual Notes is for** before listing what it contains, and answers the question two people asked after the launch: how it differs from Obsidian's own Canvas. It *is* Canvas — the same `.canvas` file in your vault — with card types Canvas doesn't have.
+
+### Security
+- **Links on a board are checked before they open.** A card's link can come from the *file* rather than from anything you typed — a board shared with you carries whatever its author put in it — and those links were opened without being checked first. A `javascript:` link runs when opened rather than simply failing to load, so opening a shared board and clicking a card was enough to run its author's script. Every link now has to be an ordinary web address before it will open. The same check now covers link previews being fetched, and images pulled from a remote page.
+- No behaviour changes for ordinary boards: every real link, preview and image works exactly as before.
+
 ## 1.1.25
 
 ### Fixed

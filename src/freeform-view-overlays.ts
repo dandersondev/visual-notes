@@ -34,6 +34,7 @@ import {
   CalloutIconPickerModal, QuickAddEntry,
   QuickAddModal,
   KanbanItemColorModal, WipLimitModal, BookmarkInputModal,
+  openExternalUrl,
 } from './freeform-view-shared';
 import type { FreeformRenderer } from './freeform-view';
 
@@ -291,7 +292,7 @@ export const overlaysMethods = {
 
     if (card.kind === 'map') {
       menu.addItem(i => i.setTitle('Open in Google Maps').setIcon('external-link').onClick(() => {
-        window.open(card.url, '_blank');
+        openExternalUrl(card.url);
       }));
       menu.addItem(i => i.setTitle('Copy URL').setIcon('copy').onClick(() => {
         void navigator.clipboard.writeText(card.url); new Notice('URL copied.');

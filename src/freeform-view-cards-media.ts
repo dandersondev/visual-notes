@@ -22,7 +22,7 @@ import {
   IMAGE_EXTS,
   AppWithPrivateAPIs,
   VaultImagePickerModal, VaultAudioPickerModal,
-  MediaSourceModal, BookmarkInputModal, KanbanItemUrlModal, isValidURL,
+  MediaSourceModal, BookmarkInputModal, KanbanItemUrlModal, isValidURL, openExternalUrl, safeRemoteImageSrc,
 } from './freeform-view-shared';
 import type { FreeformRenderer } from './freeform-view';
 
@@ -71,7 +71,16 @@ export const cardsMediaMethods = {
         img.remove();
       }
     } else {
-      img.src = card.source.url;
+      // A URL out of the file, so it gets the same http(s) check a typed one
+      // does rather than being handed straight to the element.
+      const remote = safeRemoteImageSrc(card.source.url);
+      if (remote) {
+        img.src = remote;
+      } else {
+        wrap.addClass('visual-notes-image-missing');
+        wrap.createDiv({ cls: 'visual-notes-image-missing-label', text: 'Image not found' });
+        img.remove();
+      }
     }
 
     img.addEventListener('error', () => {
@@ -277,10 +286,14 @@ export const cardsMediaMethods = {
       loading.createDiv({ cls: 'visual-notes-bookmark-loading-text', text: 'Fetching preview…' });
       try { el.createDiv({ cls: 'visual-notes-bookmark-domain', text: new URL(card.url).hostname }); } catch { /* ignore */ }
     } else {
-      if (card.imageUrl) {
+      // imageUrl and favicon are both scraped out of a remote page, so they
+      // are the least trusted strings on the card — checked before they
+      // reach an element rather than after.
+      const previewSrc = safeRemoteImageSrc(card.imageUrl);
+      if (previewSrc) {
         const imgWrap = el.createDiv('visual-notes-bookmark-image-wrap');
         const img = imgWrap.createEl('img', { cls: 'visual-notes-bookmark-img' });
-        img.src = card.imageUrl;
+        img.src = previewSrc;
         img.addEventListener('error', () => imgWrap.remove());
       }
       const content = el.createDiv('visual-notes-bookmark-content');
@@ -288,9 +301,10 @@ export const cardsMediaMethods = {
       if (card.description) content.createDiv({ cls: 'visual-notes-bookmark-desc', text: card.description });
 
       const footer = el.createDiv('visual-notes-bookmark-footer');
-      if (card.favicon) {
+      const faviconSrc = safeRemoteImageSrc(card.favicon);
+      if (faviconSrc) {
         const fav = footer.createEl('img', { cls: 'visual-notes-bookmark-favicon' });
-        fav.src = card.favicon; fav.addEventListener('error', () => fav.remove());
+        fav.src = faviconSrc; fav.addEventListener('error', () => fav.remove());
       }
       try { footer.createDiv({ cls: 'visual-notes-bookmark-domain', text: new URL(card.url).hostname }); } catch { /* ignore */ }
     }
@@ -354,6 +368,9 @@ export const cardsMediaMethods = {
   async resolveMapShortLink(this: FreeformRenderer, card: MapCard, el: HTMLElement): Promise<void> {
     let resolved: string | null = null;
     try {
+      // Guarded because this fires on open, unprompted, against whatever URL
+      // the file happens to hold — see fetchAndUpdateBookmark.
+      if (!isValidURL(card.url)) throw new Error('not a web URL');
       const resp = await requestUrl({ url: card.url });
       const html = resp.text;
       const m = html.match(/<meta[^>]+property="og:url"[^>]+content="([^"]+)"/)
@@ -401,6 +418,16 @@ export const cardsMediaMethods = {
       if (el.isConnected) { this.renderCardContent(el, card); await this.saveNow(); }
       return;
     }
+    // Opening a board fires this automatically for every stale bookmark on
+    // it, so the URL being fetched is one the *file* chose, not one the user
+    // just typed. Restricting it to http(s) keeps a shared board from
+    // pointing the fetch at some other scheme and having the response read
+    // back into the card's title and description.
+    if (!isValidURL(card.url)) {
+      card.fetchFailed = true; card.fetchedAt = Date.now();
+      if (el.isConnected) { this.renderCardContent(el, card); await this.saveNow(); }
+      return;
+    }
     try {
       const resp = await requestUrl({ url: card.url });
       const doc = new DOMParser().parseFromString(resp.text, 'text/html');
@@ -437,7 +464,7 @@ export const cardsMediaMethods = {
         void leaf.openFile(file); void this.app.workspace.revealLeaf(leaf);
       }
     } else {
-      window.open(card.source.url, '_blank');
+      openExternalUrl(card.source.url);
     }
   },
 
@@ -633,6 +660,14 @@ export const cardsMediaMethods = {
 // 1 = playing, 3 = buffering (treated as playing — a click should pause it).
 const YT_PLAYING_STATES = new Set([1, 3]);
 
+// The origins a real embedded player posts from. Both are in use: youtube.com
+// for the standard embed, youtube-nocookie.com if the URL is ever switched to
+// the privacy-preserving host.
+const YT_MESSAGE_ORIGINS = new Set([
+  'https://www.youtube.com',
+  'https://www.youtube-nocookie.com',
+]);
+
 // Keyed by the iframe's contentWindow, which is exactly what arrives as
 // `event.source` on the messages coming back. A WeakMap so a removed card's
 // entry is collected with its window — no teardown to forget.
@@ -658,6 +693,11 @@ function watchYouTubeState(iframe: HTMLIFrameElement): void {
     ytListenerBoundWindows.add(hostWin);
     hostWin.addEventListener('message', (e: MessageEvent) => {
       if (typeof e.data !== 'string') return;
+      // Two independent checks, because either alone has a gap. The origin
+      // check alone would accept messages from any YouTube frame on the page;
+      // the source check alone would keep trusting a player window that had
+      // navigated somewhere else, since the Window object survives that.
+      if (!YT_MESSAGE_ORIGINS.has(e.origin)) return;
       const source = e.source as Window | null;
       if (!source) return;
       const state = ytPlaybackStates.get(source);

@@ -14,6 +14,7 @@ import {
   TILE_DEFAULT_W, TILE_DEFAULT_H,
   COLUMN_DEFAULT_W, COLUMN_DEFAULT_H,
   DRAG_THRESHOLD,
+  openExternalUrl,
 } from './freeform-view-shared';
 import type { FreeformRenderer } from './freeform-view';
 
@@ -197,7 +198,7 @@ export const cardsColumnMethods = {
         case 'image':
           if (target.closest('.visual-notes-image-caption-wrap')) break;
           this.openImageSource(child); break;
-        case 'bookmark':  if (!parseYouTubeId(child.url)) window.open(child.url, '_blank'); break;
+        case 'bookmark':  if (!parseYouTubeId(child.url)) openExternalUrl(child.url); break;
       }
     })(); });
 

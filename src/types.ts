@@ -44,6 +44,15 @@ export interface VisualNotesSettings {
   penDrawOptions?: PenDrawOptions;  // perfect-freehand tuning from the pen options panel; default DEFAULT_PEN_DRAW_OPTIONS
   textScale?: number;               // multiplier on every card's text size (not the plugin UI); 1-2.5, default 1
   panButton?: 'middle' | 'right' | 'either'; // which mouse button drags the freeform canvas; default 'middle'
+
+  // Web clips. Notes appearing in clipFolder are added to clipBoardPath as
+  // note-link cards. Named for the general case rather than for Obsidian's
+  // Web Clipper specifically: the folder is just a folder, so the iOS share
+  // sheet, Readwise, or anything else that writes a note lands there too.
+  // Both empty = feature off.
+  clipFolder?: string;              // vault folder watched for new clips
+  clipBoardPath?: string;           // board the clips are added to
+  clipAutoImport?: boolean;         // import on startup (and, from v2, live); default true when a folder is set
 }
 
 export const DEFAULT_SETTINGS: VisualNotesSettings = {

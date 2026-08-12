@@ -30,8 +30,11 @@ import {
   IMAGE_EXTS,
   resolveDefaultStickyColor, applyStickyTextScale, commentInitial, formatCommentTime,
   NoteLinkPickerModal, VaultAnyFilePickerModal,
-  MediaSourceModal,
+  MediaSourceModal, openExternalUrl, safeRemoteImageSrc,
 } from './freeform-view-shared';
+import {
+  clipMetaFromFrontmatter, stripFrontmatter, displayDomain,
+} from './web-clip-import';
 import type { FreeformRenderer } from './freeform-view';
 
 declare module './freeform-view' {
@@ -870,7 +873,15 @@ export const cardsBasicMethods = {
     setIcon(titleBar.createDiv('visual-notes-notelink-icon'), 'file-text');
 
     const file = this.app.vault.getAbstractFileByPath(card.path);
-    const title = file ? file.name.replace(/\.md$/, '') : (card.path || 'Note Link');
+    // A clipped page carries its own metadata in the note's properties. The
+    // frontmatter title beats the filename because clippers sanitise
+    // filenames for the filesystem — "Why Things Break_ A Guide" is the file,
+    // "Why Things Break: A Guide" is the article.
+    const meta = file instanceof TFile
+      ? clipMetaFromFrontmatter(this.app.metadataCache.getFileCache(file)?.frontmatter)
+      : {};
+    const title = meta.title
+      ?? (file ? file.name.replace(/\.md$/, '') : (card.path || 'Note Link'));
     titleBar.createDiv({ cls: 'visual-notes-notelink-title', text: title });
 
     const modeBtn = titleBar.createEl('button', { cls: 'visual-notes-notelink-mode-btn' });
@@ -888,13 +899,42 @@ export const cardsBasicMethods = {
     });
 
     if (card.displayMode === 'preview' && file instanceof TFile) {
+      // A clipped page gets its cover and source shown as card chrome, above
+      // the article itself — the same shape a bookmark card uses, so a page
+      // saved into the vault and a page merely linked to look like siblings.
+      const coverSrc = safeRemoteImageSrc(meta.image);
+      if (coverSrc) {
+        const coverWrap = el.createDiv('visual-notes-notelink-cover');
+        const img = coverWrap.createEl('img');
+        img.src = coverSrc;
+        img.addEventListener('error', () => coverWrap.remove());
+      }
+
+      const domain = displayDomain(meta.sourceUrl ?? card.clipSourceUrl);
+      if (domain) {
+        const srcRow = el.createDiv('visual-notes-notelink-source');
+        setIcon(srcRow.createDiv('visual-notes-notelink-source-icon'), 'globe');
+        srcRow.createSpan({ cls: 'visual-notes-notelink-source-domain', text: domain });
+        srcRow.setAttribute('title', `Open ${meta.sourceUrl ?? card.clipSourceUrl ?? domain}`);
+        srcRow.addClass('is-clickable');
+        // Not a bare window.open: the URL came out of a note's frontmatter,
+        // which on a shared board is a string somebody else wrote.
+        srcRow.addEventListener('pointerdown', e => e.stopPropagation());
+        srcRow.addEventListener('click', (e) => {
+          e.stopPropagation(); e.preventDefault();
+          openExternalUrl(meta.sourceUrl ?? card.clipSourceUrl);
+        });
+      }
+
       const previewEl = el.createDiv('visual-notes-notelink-preview');
       const loadPreview = (f: TFile) => {
         if (!el.contains(previewEl)) return;
         void this.app.vault.cachedRead(f).then(content => {
           if (!el.contains(previewEl)) return;
           previewEl.empty();
-          void MarkdownRenderer.render(this.app, content, previewEl, f.path, this);
+          // Without the strip, a clipped note opens with its raw YAML — the
+          // very properties rendered as chrome just above.
+          void MarkdownRenderer.render(this.app, stripFrontmatter(content), previewEl, f.path, this);
         });
       };
       loadPreview(file);

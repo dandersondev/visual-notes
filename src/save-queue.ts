@@ -41,6 +41,18 @@ export class SaveQueue {
     }, this.debounceMs);
   }
 
+  /**
+   * Drops a debounced write that hasn't started yet. A write already in
+   * flight is left alone — it owns state that is mid-save, and abandoning it
+   * is what losing work looks like.
+   *
+   * For teardown, where the alternative is a timer firing against an object
+   * that no longer exists.
+   */
+  cancel(): void {
+    if (this.timer !== null) { window.clearTimeout(this.timer); this.timer = null; }
+  }
+
   async flush(): Promise<void> {
     if (this.timer !== null) { window.clearTimeout(this.timer); this.timer = null; }
 

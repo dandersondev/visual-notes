@@ -50,10 +50,11 @@ import {
   DRAG_THRESHOLD, IMAGE_EXTS, CONN_COLOR_PRESETS,
   isColumnChildKind,
   AppWithPrivateAPIs, SupportedCard, cardMinSize,
-  isValidURL,
+  isValidURL, openExternalUrl,
   KanbanItemColorModal,
 } from './freeform-view-shared';
 import { TEXT_CARD_MIN_FONT, TEXT_CARD_MAX_FONT, TEXT_CARD_DEFAULT_FONT } from './file-types';
+import { isClippedPage, clipMetaFromFrontmatter } from './web-clip-import';
 import type { FreeformRenderer } from './freeform-view';
 
 declare module './freeform-view' {
@@ -671,6 +672,21 @@ export const canvasMethods = {
             x: this.applySnap(cp.x - AUDIO_DEFAULT_W / 2), y: this.applySnap(cp.y - AUDIO_DEFAULT_H / 2),
             w: AUDIO_DEFAULT_W, h: AUDIO_DEFAULT_H, z: this.nextZ(),
             source: { type: 'vault', path: newPath },
+          };
+          this.pushUndo(); this.board.cards.push(card); await this.saveNow();
+          this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
+        } else if (ext === 'md' && isClippedPage(this.app, vf)) {
+          // A clipped page dropped onto the canvas becomes the same card the
+          // clip importer would have made, rather than a tile you have to
+          // open to see anything. Identified by the note carrying a source
+          // URL in its properties rather than by which folder it sits in, so
+          // a clip filed away somewhere else still looks like a clip.
+          const card: NoteLinkCard = {
+            id: crypto.randomUUID(), kind: 'note-link',
+            x: this.applySnap(cp.x - NOTELINK_DEFAULT_W / 2), y: this.applySnap(cp.y - NOTELINK_DEFAULT_H / 2),
+            w: NOTELINK_DEFAULT_W, h: NOTELINK_DEFAULT_H, z: this.nextZ(),
+            path: vf.path, displayMode: 'preview',
+            clipSourceUrl: clipMetaFromFrontmatter(this.app.metadataCache.getFileCache(vf)?.frontmatter).sourceUrl,
           };
           this.pushUndo(); this.board.cards.push(card); await this.saveNow();
           this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
@@ -1300,7 +1316,7 @@ export const canvasMethods = {
         case 'bookmark':
           // YouTube cards are live iframes now — they handle play/pause/
           // fullscreen themselves. Only non-YouTube bookmarks open externally.
-          if (!parseYouTubeId(card.url)) window.open(card.url, '_blank');
+          if (!parseYouTubeId(card.url)) openExternalUrl(card.url);
           break;
         case 'swatch':
           el.querySelector<HTMLInputElement>('.visual-notes-swatch-color-input')?.click();
