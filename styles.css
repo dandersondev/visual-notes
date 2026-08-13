@@ -7829,17 +7829,33 @@ input.visual-notes-calendar-month-input {
    the pill fills exactly rather than leaving the label floating in it. A
    longer label would spill past the coloured background, since the pill is
    still sized by the transparent text underneath. */
-.nav-file-title.visual-notes-explorer-board .nav-file-tag,
-.tree-item-self.visual-notes-explorer-board .nav-file-tag {
+/* The marker class is repeated deliberately, the same trick and for the same
+   reason as .visual-notes-container above: it raises the selector's weight so
+   this beats a theme on specificity alone.
+
+   The bar to clear is real rather than theoretical. Blue Topaz styles canvas
+   tags with
+
+     body:not(.remove-file-icons) .nav-file-title[data-path$=".canvas"] .nav-file-tag
+
+   which is (0,4,1). Three copies of our class puts these at (0,5,0), and a
+   higher class count wins outright. This used !important when it shipped in
+   1.1.27, which Obsidian's CSS lint flags — its suggested remedy is exactly
+   this, and it is what the rest of this stylesheet already does. */
+.nav-file-title.visual-notes-explorer-board.visual-notes-explorer-board.visual-notes-explorer-board .nav-file-tag,
+.tree-item-self.visual-notes-explorer-board.visual-notes-explorer-board.visual-notes-explorer-board .nav-file-tag {
   position: relative;
-  color: transparent !important;
-  background-color: var(--vn-explorer-board-pill) !important;
+  color: transparent;
+  background-color: var(--vn-explorer-board-pill);
   border: 1px solid color-mix(in srgb, var(--vn-explorer-board-tint) 45%, transparent);
-  filter: none !important;
+  filter: none;
 }
 
-.nav-file-title.visual-notes-explorer-board .nav-file-tag::after,
-.tree-item-self.visual-notes-explorer-board .nav-file-tag::after {
+/* Weighted the same as the rule above, not for a fight we know about but
+   because losing this one specifically would leave a blank pill: the label
+   above is transparent, so the replacement text has to land. */
+.nav-file-title.visual-notes-explorer-board.visual-notes-explorer-board.visual-notes-explorer-board .nav-file-tag::after,
+.tree-item-self.visual-notes-explorer-board.visual-notes-explorer-board.visual-notes-explorer-board .nav-file-tag::after {
   content: 'VISUAL';
   position: absolute;
   top: 0;
@@ -7858,13 +7874,18 @@ input.visual-notes-calendar-month-input {
    general, which already differs from the canvas-orange it was being rotated
    into. Setting a colour instead would mean guessing whether the icon is an
    svg, a mask, or a glyph — and guessing wrong paints a block over it. */
-.nav-file-title.visual-notes-explorer-board .nav-file-title-content::before,
-.tree-item-self.visual-notes-explorer-board .nav-file-title-content::before {
-  filter: none !important;
+.nav-file-title.visual-notes-explorer-board.visual-notes-explorer-board.visual-notes-explorer-board .nav-file-title-content::before,
+.tree-item-self.visual-notes-explorer-board.visual-notes-explorer-board.visual-notes-explorer-board .nav-file-title-content::before {
+  filter: none;
 }
+
+/* Left at ordinary weight, unlike the rules above: no theme we know of paints
+   the icon as an inline svg, so there is nothing here to outrank, and if some
+   theme does win this one the cost is an untinted icon rather than a broken
+   card. Not worth the selector. */
 .nav-file-title.visual-notes-explorer-board svg,
 .tree-item-self.visual-notes-explorer-board svg,
 .nav-file-title.visual-notes-explorer-board .nav-file-icon,
 .tree-item-self.visual-notes-explorer-board .nav-file-icon {
-  color: var(--vn-explorer-board-tint) !important;
+  color: var(--vn-explorer-board-tint);
 }

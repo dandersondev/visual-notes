@@ -52,34 +52,69 @@ describe('stylesheet: the modal path display cannot collapse to a vertical colum
   });
 });
 
+// Obsidian's CSS lint flags every !important and tells you to raise
+// specificity instead. This stylesheet had said the same thing to itself for
+// far longer — see the comments on .visual-notes-container and on the card
+// z-index — and 1.1.27 broke it anyway, in the one place that had to outrank a
+// theme. Repeating a marker class gets the same win without the warning, so
+// there is no case left where !important is the answer.
+describe('stylesheet: no !important', () => {
+  it('declares none', () => {
+    // Blanks comments in place rather than deleting them, so the reported
+    // line numbers still point at the real file — `declarations` above
+    // collapses them and would send you to the wrong line.
+    const blanked = css.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+    const offenders = blanked
+      .split('\n')
+      .map((line, i) => ({ line: line.trim(), n: i + 1 }))
+      .filter(({ line }) => line.includes('!important'));
+
+    expect(
+      offenders.map(o => `styles.css:${o.n}  ${o.line}`),
+      'Obsidian\'s CSS lint warns on each of these. Raise the selector\'s ' +
+      'specificity instead — repeating the rule\'s own marker class is what ' +
+      'the rest of this file does.',
+    ).toEqual([]);
+  });
+});
+
 // Both halves of the explorer tag came out of one bug: the 1.1.26 tint
 // looked like it had never applied. It had — Blue Topaz ends its canvas rule
 // with `filter: hue-rotate(180deg)`, which rotated our blue into the same
-// orange we were trying to be distinguishable from. !important settles
-// specificity but says nothing about a filter, so the colour was overridden
-// and then spun back. Hence a rule that cannot be undone by a hue rotation
-// and a colour that is no longer rotated at all.
+// orange we were trying to be distinguishable from. Overriding the colour
+// settles nothing while a filter is still spinning the result, so the fix is
+// a rule that cancels the filter and a word no hue rotation can undo.
+//
+// The weight these rules need is the other half. Blue Topaz's selector is
+// (0,4,1); ours has to beat it, and did so with !important until Obsidian's
+// CSS lint flagged that in 1.1.27. Three copies of the marker class puts
+// these at (0,5,0), so the class count wins instead.
+const MARK = String.raw`\.visual-notes-explorer-board`;
+const ROWS = (suffix: string) => new RegExp(
+  String.raw`\.nav-file-title(${MARK}){3} \.nav-file-tag${suffix},\s*` +
+  String.raw`\.tree-item-self(${MARK}){3} \.nav-file-tag${suffix} \{([^}]*)\}`,
+);
+
 describe('stylesheet: the explorer board tag survives a theme that styles canvas files', () => {
-  const tag = declarations.match(
-    /\.nav-file-title\.visual-notes-explorer-board \.nav-file-tag,\s*\.tree-item-self\.visual-notes-explorer-board \.nav-file-tag \{([^}]*)\}/,
-  )?.[0] ?? '';
-  const after = declarations.match(
-    /\.nav-file-title\.visual-notes-explorer-board \.nav-file-tag::after,\s*\.tree-item-self\.visual-notes-explorer-board \.nav-file-tag::after \{([^}]*)\}/,
-  )?.[0] ?? '';
+  const tag = declarations.match(ROWS(''))?.[0] ?? '';
+  const after = declarations.match(ROWS('::after'))?.[0] ?? '';
 
   it('still has both rules to constrain', () => {
+    // Also the specificity assertion: ROWS only matches with the marker class
+    // repeated three times, so dropping the repetition fails here rather than
+    // silently losing to the theme at runtime.
     expect(tag).not.toBe('');
     expect(after).not.toBe('');
   });
 
   it('cancels any filter the theme put on the tag', () => {
-    expect(tag).toMatch(/filter:\s*none\s*!important/);
+    expect(tag).toMatch(/filter:\s*none/);
   });
 
   it('hides the real extension text without collapsing the pill', () => {
     // transparent, not display:none or font-size:0 — the theme's own padding
     // and radius stay, and the overlay lands on a box that still has a size.
-    expect(tag).toMatch(/color:\s*transparent\s*!important/);
+    expect(tag).toMatch(/color:\s*transparent/);
   });
 
   it('names the owning plugin in a way no colour filter can undo', () => {

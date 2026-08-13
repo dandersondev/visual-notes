@@ -1005,7 +1005,12 @@ export const canvasMethods = {
       // means everywhere. Same shape as the YouTube overlay above, and for the
       // same reason: pointer capture retargets the click, so the element can't
       // detect its own.
-      const videoBodyEl = target instanceof HTMLVideoElement ? target : null;
+      //
+      // instanceOf rather than instanceof: a board open in a popout window has
+      // its own HTMLVideoElement constructor, and a plain instanceof against
+      // this window's would answer false there — the card would drag but never
+      // play. Obsidian's check crosses windows; it narrows the type the same way.
+      const videoBodyEl = target.instanceOf(HTMLVideoElement) ? target : null;
 
       if (this.connectMode) {
         e.stopPropagation(); e.preventDefault();

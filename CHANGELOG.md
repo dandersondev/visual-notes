@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.1.28
+
+### Fixed
+- **The VISUAL tag no longer flashes CANVAS first.** Board rows in the file explorer appeared as an orange **CANVAS** tag for a moment before settling to blue **VISUAL**, as though they were still loading — and did it again each time a row scrolled out of view and back. Telling a board from an ordinary canvas means reading the file, but that was made to hold up every row, including the ones already identified. Rows Visual Notes has seen before are now marked in the same frame they appear. A board it has genuinely never seen still has to be read once, so a brand-new board may take a moment the first time.
+- **Clicking a video to play it now works in a popped-out window.** A board opened in its own window would let you drag a video card but never play it by clicking the picture — the play button in the controls still worked, so it looked like a half-broken card rather than an obvious bug.
+
 ## 1.1.27
 
 ### Added

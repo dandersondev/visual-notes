@@ -27,9 +27,14 @@ import { SaveQueue } from './save-queue';
 /** Marks a row as one of ours. Styled in styles.css; see --vn-explorer-board-tint. */
 export const BOARD_ROW_CLASS = 'visual-notes-explorer-board';
 
-// Long enough to collapse the burst of mutations that expanding a folder or
-// scrolling a long list produces, short enough not to be noticed.
-const SCAN_DEBOUNCE_MS = 120;
+// Only ever delays rows whose file still has to be read — anything already
+// classified is applied synchronously, before the browser paints (see
+// applyCached). This was 120ms and applied to everything, which was reported
+// as the tag flashing orange "CANVAS" before settling to blue "VISUAL": long
+// enough to collapse a burst, but not, it turns out, short enough to go
+// unnoticed. A folder expanding fires its mutations in one task, so even this
+// collapses them completely.
+const SCAN_DEBOUNCE_MS = 30;
 
 /**
  * Remembers which canvases are Visual Notes boards.
@@ -84,7 +89,11 @@ export class ExplorerDecorator {
       SCAN_DEBOUNCE_MS,
     );
     this.observe();
-    this.queue.schedule();
+    this.applyCached();
+    // Immediately rather than debounced: this runs from onLayoutReady, so the
+    // explorer is on screen and every extra millisecond here is a millisecond
+    // of rows showing the wrong tag.
+    void this.queue.flush();
   }
 
   stop(): void {
@@ -119,7 +128,13 @@ export class ExplorerDecorator {
     for (const root of this.explorerRoots()) {
       // childList/subtree only: class changes are attribute mutations, so
       // our own decorating can't retrigger the observer.
-      const obs = new MutationObserver(() => this.schedule());
+      // applyCached first, and synchronously. A MutationObserver callback runs
+      // as a microtask after the DOM changes but before the browser paints, so
+      // a row we already have an answer for is marked in the same frame it
+      // appears — no flash. Only rows still needing a file read fall through to
+      // the debounced scan. This is what makes scrolling a long list, or
+      // reopening a folder, look instant rather than lagging behind by a beat.
+      const obs = new MutationObserver(() => { this.applyCached(); this.schedule(); });
       obs.observe(root, { childList: true, subtree: true });
       this.observers.push(obs);
     }
@@ -143,6 +158,29 @@ export class ExplorerDecorator {
       }
     }
     return out;
+  }
+
+  /**
+   * Marks every row we already know the answer for, without awaiting anything.
+   *
+   * Deliberately synchronous and deliberately partial. Telling a board from a
+   * plain canvas means reading the file, and that read is what put the class a
+   * frame or more behind the row appearing — so anything already in the cache
+   * skips it entirely, and only genuinely unknown rows wait. Rows it can't
+   * answer for are left exactly as they are rather than being cleared, since
+   * clearing them is the flash by another name.
+   */
+  private applyCached(): void {
+    if (!this.running) return;
+    for (const { pathEl, row } of this.rows()) {
+      const path = pathEl.getAttribute('data-path');
+      if (!path) continue;
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (!(file instanceof TFile)) continue;
+      const isBoard = this.cache.get(path, file.stat.mtime);
+      if (isBoard === undefined) continue; // needs a read — scan() will get it
+      row.toggleClass(BOARD_ROW_CLASS, isBoard);
+    }
   }
 
   private async scan(): Promise<void> {
