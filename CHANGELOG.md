@@ -2,6 +2,14 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.1.29
+
+### Fixed
+- **Video controls now work at any card size.** Play, pause, the scrubber, volume and fullscreen did nothing on a video card unless you first made the card much wider — reported on vertical phone clips, where it never worked at the size the card arrives at. The canvas was reserving a fixed strip at the bottom of the card for the controls, but the browser lays them out on **two rows** when a video is narrow and one row when it's wide, so on a vertical clip the whole control bar sat outside the strip and every press on it was taken as an attempt to drag the card. The canvas no longer sets aside any part of a video: a press is left alone until it actually moves, so the controls receive it whatever shape the card is, and moving the pointer still drags the card exactly as before.
+
+### Changed
+- **A vertical video no longer arrives as a very tall card.** Card size was worked out from a fixed width, so a portrait phone clip came in around 320 × 569 — most of a screen for one card. A newly added clip is now fitted to a sensible size in both directions, so a vertical one lands nearer 200 × 360. Landscape video is unchanged, and a card you have resized yourself is left alone.
+
 ## 1.1.28
 
 ### Fixed

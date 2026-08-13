@@ -61,6 +61,13 @@ export const AUDIO_DEFAULT_H     = 100;
 // jarring, being what most footage actually is.
 export const VIDEO_DEFAULT_W     = 320;
 export const VIDEO_DEFAULT_H     = 180;
+// A freshly dropped clip is fitted inside VIDEO_DEFAULT_W x VIDEO_MAX_H rather
+// than being given a fixed width. Deriving the height from a fixed width is
+// right for landscape and wrong for everything else: a vertical phone video at
+// 320 wide comes out 569 tall, which is most of a screen for one card on a
+// moodboard. Chosen so 16:9 lands on exactly 320x180 as before, while 9:16
+// lands near 202x360.
+export const VIDEO_MAX_H         = 360;
 export const VIDEO_MIN_W         = 120;
 export const VIDEO_MIN_H         = 68;
 export const MAP_DEFAULT_W       = 480;
@@ -94,10 +101,11 @@ export const AUDIO_EXTS          = ['mp3', 'wav'];
 // can't play is caught by the <video> element's error event and shown as a
 // card offering to open it externally, which beats a black rectangle.
 export const VIDEO_EXTS          = ['mp4', 'webm', 'mov', 'm4v', 'ogv', 'mkv', 'avi'];
-// Height of the browser's own control bar along the bottom of a <video>.
-// Chromium draws it at roughly this, and there is no way to ask: the controls
-// live in a closed shadow root, so hit-testing them means measuring instead.
-export const VIDEO_CONTROLS_H    = 40;
+// There is deliberately no VIDEO_CONTROLS_H here any more. Reserving a fixed
+// strip for the browser's control bar was wrong for any video whose width made
+// Chromium lay it out on two rows, and no single number can be right: the
+// height depends on the video's width, the platform and the app's zoom. The
+// canvas defers to movement instead — see bindDelegatedCardEvents.
 export const KANBAN_DEFAULT_W    = 220;
 export const KANBAN_DEFAULT_H    = 340;
 export const KANBAN_MIN_W        = 160;
@@ -241,26 +249,6 @@ export interface AppWithPrivateAPIs extends App {
 export type SupportedCard = TileCard | StickyCard | TextCard | ChecklistCard | CommentCard | TableCard | NoteLinkCard | ImageCard | AudioCard | VideoCard | BookmarkCard | KanbanColumnCard | KanbanBoardCard | ColumnCard | MapCard | SwatchCard | FileCard | CalloutCard | GroupCard | CalendarCard | CheckersCard;
 
 export const KANBAN_BOARD_MIN_W = 320;
-
-/**
- * Whether a press at `clientY` landed on a video's control bar rather than on
- * the picture.
- *
- * This is what lets a video card behave like every other card. The controls
- * need the press, but taking every press meant the card could not be dragged
- * by grabbing the video — which is most of it. Splitting by height gives the
- * controls the strip they occupy and leaves the rest to the canvas.
- *
- * Capped at 40% of the card so a very short video isn't entirely control bar,
- * which would make it undraggable again by a different route.
- *
- * Takes a rect rather than an element because jsdom has no layout engine: as
- * arithmetic this is testable, and as a DOM measurement it would not be.
- */
-export function isOnVideoControls(rect: { bottom: number; height: number }, clientY: number): boolean {
-  if (rect.height <= 0) return false; // unlaid-out element — treat it all as picture
-  return clientY >= rect.bottom - Math.min(VIDEO_CONTROLS_H, rect.height * 0.4);
-}
 
 export function cardMinSize(kind: Card['kind']): { w: number; h: number } {
   // Tiny, because a text card's real size comes from its font size rather

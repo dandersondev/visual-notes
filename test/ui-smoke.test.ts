@@ -3110,33 +3110,121 @@ describe('UI smoke: video cards', () => {
     expect(withVideo().container.querySelector<HTMLVideoElement>('video')!.autoplay).toBe(false);
   });
 
-  // The two halves of the same split, and they only work as a pair. Taking
-  // every press made the controls usable but left the card undraggable by its
-  // video, which is nearly all of it; taking none would make the play button
-  // and scrubber start a drag instead. jsdom has no layout, so the rect is
-  // supplied rather than measured — which is why the geometry lives in a pure
-  // helper (isOnVideoControls) instead of inline.
-  function pressAt(container: HTMLElement, clientY: number) {
+  // Two attempts to split a video card between "controls" and "picture" both
+  // failed, because the browser draws the controls in a shadow root that can't
+  // be hit-tested and whose height changes with the video's width — Chromium
+  // uses two rows on a narrow clip, which is what a phone video is. Reported
+  // as the player showing but not playing.
+  //
+  // There is no split any more. A press on a video is left completely alone
+  // until it moves, so whatever it landed on receives it; only movement past
+  // the threshold turns it into a drag. These pin that, because the failure
+  // mode is a card that looks right and does nothing.
+  function pressVideo(container: HTMLElement) {
     const cardEl = container.querySelector<HTMLElement>('.visual-notes-freeform-card[data-id="v1"]')!;
     const video = container.querySelector<HTMLElement>('video')!;
-    video.getBoundingClientRect = () => ({ top: 0, bottom: 180, height: 180, left: 0, right: 320, width: 320, x: 0, y: 0, toJSON: () => ({}) });
-    const reachedCard = vi.fn();
-    cardEl.addEventListener('pointerdown', reachedCard);
-    video.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientY }));
-    return reachedCard;
+    const captured = vi.fn();
+    cardEl.setPointerCapture = captured;
+    const down = new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 50, clientY: 50, buttons: 1 });
+    video.dispatchEvent(down);
+    return { cardEl, video, down, captured };
   }
 
-  it('keeps a press on the controls away from the card', () => {
-    // Otherwise the play button and scrubber start a card drag instead of
-    // doing their job — the failure this whole split exists to avoid, and the
-    // same one as the calendar's "+N more" in 1.1.25.
-    expect(pressAt(withVideo().container, 170)).not.toHaveBeenCalled();
+  it('does not swallow a press on the video, so the controls get it', () => {
+    // preventDefault would suppress the compatibility mouse events the
+    // browser's own play/scrub/volume/fullscreen controls run on. This is the
+    // whole bug: the player rendered, and nothing on it responded.
+    const { down } = pressVideo(withVideo().container);
+    expect(down.defaultPrevented).toBe(false);
   });
 
-  it('lets a press on the picture drag the card', () => {
-    // Reported after the first version: the card could not be moved at all,
-    // because the video covers nearly the whole of it.
-    expect(pressAt(withVideo().container, 40)).toHaveBeenCalled();
+  it('does not capture the pointer until the press actually moves', () => {
+    // Capture retargets every later pointer event at the card, so the controls
+    // would never see the release however the press was classified.
+    const { captured } = pressVideo(withVideo().container);
+    expect(captured).not.toHaveBeenCalled();
+  });
+
+  it('captures and drags once the press moves past the threshold', () => {
+    const { cardEl, captured } = pressVideo(withVideo().container);
+    cardEl.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 200, clientY: 200, buttons: 1 }));
+
+    expect(captured).toHaveBeenCalled();
+  });
+
+  it('still moves the card when dragged by its video', () => {
+    // The regression that started all of this: the video covers nearly the
+    // whole card, so if it can't be dragged by the picture it can't be moved.
+    const { renderer, board, container } = withVideo();
+    renderer.selection.select('v1');
+    const cardEl = container.querySelector<HTMLElement>('.visual-notes-freeform-card[data-id="v1"]')!;
+    const video = container.querySelector<HTMLElement>('video')!;
+    const before = board.cards[0].x ?? 0;
+
+    video.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 0, clientY: 0, buttons: 1 }));
+    cardEl.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 120, clientY: 0, buttons: 1 }));
+    cardEl.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 120, clientY: 0, buttons: 0 }));
+
+    expect(board.cards[0].x).not.toBe(before);
+  });
+
+  // A vertical phone clip at a fixed 320 wide came out 569 tall — most of a
+  // screen for one card, and the reporter said as much. A freshly dropped card
+  // is fitted inside a box instead, but only while it is still at the size it
+  // was created at, so this can never resize something by hand.
+  function loadMetadata(container: HTMLElement, vw: number, vh: number) {
+    const video = container.querySelector<HTMLVideoElement>('video')!;
+    Object.defineProperty(video, 'videoWidth', { value: vw, configurable: true });
+    Object.defineProperty(video, 'videoHeight', { value: vh, configurable: true });
+    video.dispatchEvent(new Event('loadedmetadata'));
+  }
+
+  it('fits a vertical clip into the box rather than making it 569 tall', () => {
+    const { container, board } = withVideo();
+    loadMetadata(container, 1080, 1920);
+
+    const card = board.cards[0];
+    expect(card.h).toBe(360);
+    expect(card.w).toBe(203); // 1080 * (360/1920)
+  });
+
+  it('leaves a 16:9 clip exactly where it already was', () => {
+    // The box is chosen so landscape lands on the old default untouched —
+    // this change is meant to fix vertical video, not move everything.
+    const { container, board } = withVideo();
+    loadMetadata(container, 1920, 1080);
+
+    expect([board.cards[0].w, board.cards[0].h]).toEqual([320, 180]);
+  });
+
+  it('keeps the width on a card that has been resized, and only fixes its height', () => {
+    // Refitting a card someone has already sized would undo their work every
+    // time the board reopened.
+    const { container, board } = withVideo();
+    board.cards[0].w = 640;
+    board.cards[0].h = 100;
+    loadMetadata(container, 1080, 1920);
+
+    expect(board.cards[0].w).toBe(640);
+    expect(board.cards[0].h).toBe(1138); // 640 * (1920/1080)
+  });
+
+  it('leaves every other card kind capturing immediately, as before', () => {
+    // The deferral is scoped to videos on purpose: immediate capture is what
+    // guarantees a below-threshold nudge released off the card still reaches
+    // onUp, and unpicking that for every card is not a change worth making on
+    // the back of a video bug.
+    const sticky: StickyCard = { id: 's1', kind: 'sticky', x: 0, y: 0, w: 200, h: 120, text: 'hi', color: '#fff' };
+    const { container } = setup([sticky]);
+    const cardEl = container.querySelector<HTMLElement>('.visual-notes-freeform-card[data-id="s1"]')!;
+    const captured = vi.fn();
+    cardEl.setPointerCapture = captured;
+
+    const down = new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 5, clientY: 5, buttons: 1 });
+    cardEl.dispatchEvent(down);
+
+    expect(captured).toHaveBeenCalled();
+    expect(down.defaultPrevented).toBe(true);
   });
 
   it('offers a way out when the format cannot be decoded', () => {

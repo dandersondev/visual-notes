@@ -999,18 +999,6 @@ export const canvasMethods = {
       // on in onUp, once it's known whether this turned into a drag.
       const onYouTubeOverlay = !!target.closest('.visual-notes-bookmark-youtube-overlay');
 
-      // A press on a video's picture (its controls stopped propagation before
-      // this ever ran) drags the card like anywhere else — and if it turns out
-      // not to be a drag, it means play/pause, which is what clicking a video
-      // means everywhere. Same shape as the YouTube overlay above, and for the
-      // same reason: pointer capture retargets the click, so the element can't
-      // detect its own.
-      //
-      // instanceOf rather than instanceof: a board open in a popout window has
-      // its own HTMLVideoElement constructor, and a plain instanceof against
-      // this window's would answer false there — the card would drag but never
-      // play. Obsidian's check crosses windows; it narrows the type the same way.
-      const videoBodyEl = target.instanceOf(HTMLVideoElement) ? target : null;
 
       if (this.connectMode) {
         e.stopPropagation(); e.preventDefault();
@@ -1040,8 +1028,28 @@ export const canvasMethods = {
       // swallowing every click.
       const isKanbanHeaderArea = (card.kind === 'kanban-column' || card.kind === 'kanban-board' || card.kind === 'column')
         && !!target.closest('.visual-notes-kanban-header, .visual-notes-kanban-board-titlebar, .visual-notes-column-header');
+
+      // A video's own controls are drawn by the browser inside a shadow root
+      // we cannot hit-test, and their height changes with the video's width
+      // (Chromium splits them onto two rows when it is narrow). Every attempt
+      // to carve out "the controls" by measurement has been wrong for some
+      // video, so this carves out nothing: a press on a video is left alone
+      // entirely until it moves. If it never moves, the browser handles it --
+      // play, scrub, volume, fullscreen, whatever it landed on. If it does
+      // move, the drag engages at the same threshold as every other card,
+      // taking capture then (see takeCapture below).
+      //
+      // instanceOf rather than instanceof: a board in a popout window has its
+      // own constructors, and a plain instanceof against this window's would
+      // answer false there — leaving that board back on the intercepting path
+      // whose controls don't work.
+      const onVideo = target.instanceOf(HTMLVideoElement);
+
       e.stopPropagation();
-      if (!isKanbanHeaderArea) e.preventDefault();
+      // preventDefault suppresses the compatibility mouse events the video's
+      // controls are driven by, so it has to be skipped for the same reason
+      // the kanban header skips it.
+      if (!isKanbanHeaderArea && !onVideo) e.preventDefault();
 
       if (this.selectedConnectionId) this.deselectConnection();
 
@@ -1076,7 +1084,19 @@ export const canvasMethods = {
       // plain hover over the card (pointermove fires on hover regardless
       // of button state) replays into the stale onMove and starts a
       // "drag" with no button held at all.
-      el.setPointerCapture(captureId);
+      //
+      // The exception is a press on a video: capture retargets every later
+      // pointer event at `el`, so the controls would never see the release
+      // and no button would ever fire. There it is deferred until the drag
+      // actually engages, and document-level listeners below stand in for the
+      // guarantee capture would otherwise give.
+      let captured = false;
+      const takeCapture = () => {
+        if (captured) return;
+        el.setPointerCapture(captureId);
+        captured = true;
+      };
+      if (!onVideo) takeCapture();
       for (const id of this.selection.getIds()) {
         const c = this.board.cards.find(c => c.id === id);
         if (c) { startPos.set(id, { x: c.x ?? 0, y: c.y ?? 0 }); dragCardsById.set(id, c); }
@@ -1220,7 +1240,12 @@ export const canvasMethods = {
         const dx = e.clientX - sc.x, dy = e.clientY - sc.y;
         if (!dragMoved) {
           if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
-          dragMoved = true; this.pushUndo();
+          dragMoved = true;
+          // No-op unless this press began on a video, where capture was held
+          // back so the controls could work. From here it is a real drag, so
+          // the usual guarantees are wanted.
+          takeCapture();
+          this.pushUndo();
           startLift();
         }
         // Update smoothed velocity from instantaneous pointer speed — kept
@@ -1243,6 +1268,9 @@ export const canvasMethods = {
         el.removeEventListener('pointermove', onMove);
         el.removeEventListener('pointerup', onUp);
         el.removeEventListener('pointercancel', onUp);
+        // Harmless when they were never added (the non-video path).
+        activeDocument.removeEventListener('pointerup', onUp);
+        activeDocument.removeEventListener('pointercancel', onUp);
         if (moveFramePending) { window.cancelAnimationFrame(moveFrameId); latestX = ue.clientX; latestY = ue.clientY; flushMoveFrame(); }
         if (hoveredCardId) this.cardEls.get(hoveredCardId)?.removeClass('is-kanban-drop-target');
         this.clearTrashHover();
@@ -1256,9 +1284,17 @@ export const canvasMethods = {
         // Pressed the video overlay and let go without dragging — that's the
         // "Click to play or pause" the overlay's tooltip promises.
         if (onYouTubeOverlay && !dragMoved) toggleYouTubePlayback(el);
-        if (videoBodyEl && !dragMoved) {
-          if (videoBodyEl.paused) void videoBodyEl.play().catch(() => { /* codec/autoplay policy — the controls still work */ });
-          else videoBodyEl.pause();
+        // A video that was actually dragged must not also be toggled: the
+        // browser still emits a click at the end of the gesture, and its
+        // default action on a video is play/pause, so repositioning a card
+        // would start it playing. Swallowed once, in the capture phase, before
+        // it can reach the element. The timeout is for the case where no click
+        // follows at all (a drag released off the card), so the listener can't
+        // outlive the gesture and eat an unrelated one.
+        if (onVideo && dragMoved) {
+          const swallowClick = (ce: Event) => { ce.stopPropagation(); ce.preventDefault(); };
+          activeDocument.addEventListener('click', swallowClick, { capture: true, once: true });
+          window.setTimeout(() => activeDocument.removeEventListener('click', swallowClick, true), 0);
         }
         if (trashing) {
           // pushUndo already ran when the drag crossed its threshold, so a
@@ -1334,6 +1370,18 @@ export const canvasMethods = {
       el.addEventListener('pointermove', onMove);
       el.addEventListener('pointerup', onUp);
       el.addEventListener('pointercancel', onUp);
+      if (onVideo) {
+        // Standing in for the capture that wasn't taken. Without it, a press
+        // released anywhere but over this card never reaches `el`, leaving
+        // onMove attached — and a later hover (pointermove fires on hover
+        // regardless of buttons) would replay into it and "drag" the card
+        // with nothing held down. That is the exact bug immediate capture was
+        // introduced to prevent, so the deferral has to answer for it too.
+        // `el` sees the release first and detaches these before the event
+        // reaches the document, so onUp still runs exactly once.
+        activeDocument.addEventListener('pointerup', onUp);
+        activeDocument.addEventListener('pointercancel', onUp);
+      }
     });
 
     this.inner.addEventListener('dblclick', (e) => { void (async () => {

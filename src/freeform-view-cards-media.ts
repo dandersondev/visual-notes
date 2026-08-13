@@ -17,7 +17,7 @@ import { sortAssetFile, saveNewAsset } from './asset-manager';
 import {
   IMAGE_DEFAULT_W, IMAGE_DEFAULT_H, IMAGE_MIN_H,
   BOOKMARK_DEFAULT_W, BOOKMARK_DEFAULT_H, AUDIO_DEFAULT_W, AUDIO_DEFAULT_H,
-  VIDEO_DEFAULT_W, VIDEO_DEFAULT_H,
+  VIDEO_DEFAULT_W, VIDEO_DEFAULT_H, VIDEO_MAX_H, VIDEO_MIN_W, VIDEO_MIN_H,
   MAP_DEFAULT_W, MAP_DEFAULT_H,
   AUDIO_EXTS,
   VIDEO_EXTS,
@@ -25,7 +25,6 @@ import {
   AppWithPrivateAPIs,
   VaultImagePickerModal, VaultAudioPickerModal, VaultVideoPickerModal,
   MediaSourceModal, BookmarkInputModal, KanbanItemUrlModal, isValidURL, openExternalUrl, safeRemoteImageSrc,
-  isOnVideoControls,
 } from './freeform-view-shared';
 import type { FreeformRenderer } from './freeform-view';
 
@@ -240,18 +239,24 @@ export const cardsMediaMethods = {
     video.setAttribute('aria-label', vf.basename);
     el.setAttribute('title', vf.name);
 
-    // Only the control bar is withheld from the canvas. Cards drag from
-    // pointerdown, so taking every press made the play button and scrubber
-    // work at the cost of the card no longer being draggable by its video --
-    // which is nearly all of it. Splitting by height gives the controls the
-    // strip they occupy and leaves the picture to the canvas, so a video card
-    // drags like any other. Both halves are covered by tests.
-    const onControls = (e: PointerEvent | MouseEvent) =>
-      isOnVideoControls(video.getBoundingClientRect(), e.clientY);
-    video.addEventListener('pointerdown', (e) => { if (onControls(e)) e.stopPropagation(); });
-    video.addEventListener('click', (e) => { if (onControls(e)) e.stopPropagation(); });
-    // Never the canvas's: double-clicking a video means fullscreen, which the
-    // browser does for us as long as nothing else claims the event.
+    // Nothing is intercepted here, deliberately. 1.1.27 withheld every press
+    // from the canvas so the controls would work, which left the card
+    // undraggable; 1.1.28 withheld only the bottom 40px, which was wrong
+    // because Chromium lays the controls out in *two* rows on a narrow video
+    // -- a portrait phone clip, exactly what a moodboard is full of -- putting
+    // the play button ~70px up and back outside the strip. Reported as the
+    // player showing but not playing.
+    //
+    // Any guess at that height is wrong somewhere: it varies with the video's
+    // width, the platform, and Obsidian's zoom. So the canvas no longer splits
+    // by geometry at all -- it defers instead, starting a card drag only once
+    // the pointer actually moves (see bindDelegatedCardEvents). A press that
+    // doesn't move is never intercepted, so the controls receive it whatever
+    // layout they happen to be in, and click-to-play is simply the browser's
+    // own behaviour rather than something reimplemented here.
+    //
+    // Only dblclick is claimed, to stop the canvas acting on it. It is not
+    // prevented, so the browser still takes it as "go fullscreen".
     video.addEventListener('dblclick', (e) => e.stopPropagation());
 
     // mkv and avi generally cannot be decoded by Electron's Chromium, and mov
@@ -264,11 +269,30 @@ export const cardsMediaMethods = {
     // images, but from metadata we are loading anyway.
     video.addEventListener('loadedmetadata', () => {
       if (!video.videoWidth || !video.videoHeight) return;
+      const cardEl = this.cardEls.get(card.id);
+
+      // A card still at its untouched default size is one nobody has sized
+      // yet, so both dimensions are ours to choose: fit the clip inside a box
+      // instead of hanging its height off a fixed width. That distinction is
+      // what keeps this from fighting the user — anything they have resized
+      // takes the aspect-only path below and keeps its width.
+      if (card.w === VIDEO_DEFAULT_W && card.h === VIDEO_DEFAULT_H) {
+        const scale = Math.min(VIDEO_DEFAULT_W / video.videoWidth, VIDEO_MAX_H / video.videoHeight);
+        const w = Math.max(VIDEO_MIN_W, Math.round(video.videoWidth * scale));
+        const h = Math.max(VIDEO_MIN_H, Math.round(video.videoHeight * scale));
+        if (w === card.w && h === card.h) return; // 16:9 already lands here
+        card.w = w; card.h = h;
+        if (cardEl) { cardEl.style.width = `${w}px`; cardEl.style.height = `${h}px`; }
+        this.scheduleSave();
+        return;
+      }
+
+      // Resized by hand at some point: keep the width they chose and only
+      // correct the height, so the clip is never stretched or letterboxed.
       const w = card.w ?? VIDEO_DEFAULT_W;
       const h = Math.round(w * (video.videoHeight / video.videoWidth));
       if (h < 1 || Math.abs(h - (card.h ?? VIDEO_DEFAULT_H)) < 2) return;
       card.h = h;
-      const cardEl = this.cardEls.get(card.id);
       if (cardEl) cardEl.style.height = `${h}px`;
       this.scheduleSave();
     });

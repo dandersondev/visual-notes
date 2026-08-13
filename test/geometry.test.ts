@@ -5,7 +5,6 @@ import {
   buildElbowPath, quadBezierPoint,
   anchorPoint, pinPositions, straightAnchors, elbowAnchors, resolveOrientation,
 } from '../src/canvas/geometry';
-import { isOnVideoControls } from '../src/freeform-view-shared';
 
 describe('pullBackPoint', () => {
   it('moves the point back toward `from` by the given distance', () => {
@@ -299,37 +298,3 @@ describe('elbowAnchors with pinned ends', () => {
   });
 });
 
-// Splitting a video card between its controls and its picture.
-//
-// Both halves matter and they only work as a pair: the controls need the
-// press, but taking every press left the card undraggable by its video, which
-// is nearly all of it. Pure arithmetic rather than a DOM measurement so it is
-// testable at all — jsdom reports every rect as zeros.
-describe('isOnVideoControls', () => {
-  const rect = { bottom: 180, height: 180 }; // a 320x180 card at the origin
-
-  it('claims the bottom strip for the controls', () => {
-    expect(isOnVideoControls(rect, 179)).toBe(true);
-    expect(isOnVideoControls(rect, 145)).toBe(true); // 180 - 40 + 5
-  });
-
-  it('leaves the picture to the canvas, so the card can be dragged', () => {
-    expect(isOnVideoControls(rect, 0)).toBe(false);
-    expect(isOnVideoControls(rect, 90)).toBe(false);
-    expect(isOnVideoControls(rect, 139)).toBe(false);
-  });
-
-  it('never gives the controls more than 40% of a short card', () => {
-    // A 60px-tall card would otherwise be two thirds control bar, which is
-    // undraggable again by a different route.
-    const short = { bottom: 60, height: 60 };
-    expect(isOnVideoControls(short, 30)).toBe(false); // above the 24px strip
-    expect(isOnVideoControls(short, 50)).toBe(true);
-  });
-
-  it('treats an unlaid-out element as all picture rather than all controls', () => {
-    // jsdom, and a card rendered before layout: guessing "controls" there
-    // would make the card undraggable for reasons impossible to see.
-    expect(isOnVideoControls({ bottom: 0, height: 0 }, 0)).toBe(false);
-  });
-});
