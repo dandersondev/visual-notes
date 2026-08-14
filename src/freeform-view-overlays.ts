@@ -641,6 +641,36 @@ export const overlaysMethods = {
       return btn;
     };
 
+    // ── Mode buttons: select / hand ──
+    //
+    // Ahead of the placement tools and separated from them, because they are
+    // a different kind of control: a mode that persists, not a card waiting to
+    // be placed. They deliberately skip mkBtn's drag-to-place wiring, which
+    // would be meaningless here.
+    //
+    // Asked for as "press H for hand and V for pointer". The keys are bound in
+    // docKeyDown; these exist so the same thing is discoverable and reachable
+    // without a keyboard -- the request came from someone working on a
+    // trackpad, where the middle/right-button pan is awkward at best.
+    const mkModeBtn = (label: string, icon: string, mode: 'select' | 'hand'): HTMLElement => {
+      const btn = addPanel.createDiv('visual-notes-tb-btn visual-notes-tb-mode-btn');
+      btn.setAttribute('tabindex', '0');
+      btn.setAttribute('aria-label', `${label} (${mode === 'hand' ? 'H' : 'V'})`);
+      const iconEl = btn.createDiv('visual-notes-tb-btn-icon');
+      setIcon(iconEl, icon);
+      btn.createSpan('visual-notes-tb-btn-label').setText(label);
+      const act = () => { this.setInteractionMode(mode); this.closeFab(); };
+      btn.addEventListener('click', act);
+      btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(); } });
+      return btn;
+    };
+    this.selectModeBtn = mkModeBtn('Select', 'mouse-pointer-2', 'select');
+    this.handModeBtn = mkModeBtn('Hand', 'hand', 'hand');
+    // setInteractionMode early-returns when the mode is unchanged, so the
+    // starting state has to be marked here rather than by calling it.
+    this.selectModeBtn.addClass('is-active');
+    addPanel.createDiv('visual-notes-tb-mode-sep');
+
     this.textToolBtn = mkBtn('Text', 'type', 'text');
     mkBtn('Note',    'square',           'blank-card');
     mkBtn('Tile',    'layout-template', 'tile-board');

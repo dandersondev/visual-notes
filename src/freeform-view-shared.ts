@@ -101,6 +101,21 @@ export const AUDIO_EXTS          = ['mp3', 'wav'];
 // can't play is caught by the <video> element's error event and shown as a
 // card offering to open it externally, which beats a black rectangle.
 export const VIDEO_EXTS          = ['mp4', 'webm', 'mov', 'm4v', 'ogv', 'mkv', 'avi'];
+
+/**
+ * Seconds as m:ss, or h:mm:ss once past an hour. Guards the non-finite
+ * duration a <video> reports before its metadata arrives, which would
+ * otherwise render as "NaN:NaN" for the first frames after a card appears.
+ */
+export function formatVideoTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const total = Math.floor(seconds);
+  const s = total % 60;
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600);
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
 // There is deliberately no VIDEO_CONTROLS_H here any more. Reserving a fixed
 // strip for the browser's control bar was wrong for any video whose width made
 // Chromium lay it out on two rows, and no single number can be right: the
@@ -125,8 +140,32 @@ export const CHECKERS_MIN_H      = 260;
 export const DOT_SPACING         = 32;
 export const MAX_UNDO            = 20;
 export const DRAG_THRESHOLD      = 5;
+// Arrow-key nudge distances, in canvas units. Fine is 1 so a card can be
+// placed exactly; coarse (with Shift) is a visible step rather than a
+// repeat-key marathon.
+export const NUDGE_FINE          = 1;
+export const NUDGE_COARSE        = 10;
+export const ARROW_NUDGE: { [key: string]: { dx: number; dy: number } | undefined } = {
+  ArrowLeft:  { dx: -1, dy:  0 },
+  ArrowRight: { dx:  1, dy:  0 },
+  ArrowUp:    { dx:  0, dy: -1 },
+  ArrowDown:  { dx:  0, dy:  1 },
+};
 
 export const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'avif', 'ico'];
+
+/**
+ * Whether text is being typed into `el`, so a bare-letter shortcut must not
+ * act on it. Pure and element-agnostic so both keyboard paths can share one
+ * definition -- they previously used different tests, which is how the canvas
+ * shortcuts and the board shortcuts drifted apart.
+ */
+export function isTypingElement(el: Element | null): boolean {
+  if (!el) return false;
+  return el.instanceOf(HTMLInputElement)
+    || el.instanceOf(HTMLTextAreaElement)
+    || (el.instanceOf(HTMLElement) && el.getAttribute('contenteditable') != null);
+}
 
 // Shared by the day-decoration and note context menus (Calendar card).
 export const CALENDAR_IMPORTANCE_OPTIONS: { v: CalendarNoteImportance | undefined; label: string }[] = [

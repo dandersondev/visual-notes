@@ -723,15 +723,19 @@ path.is-marquee-selected {
   max-width: 52px;
 }
 
-/* ··· overflow separator */
-.visual-notes-tb-overflow-sep {
+/* ··· overflow separator, and the same rule for the select/hand mode group
+   that leads the toolbar — both mark a break between kinds of control. */
+.visual-notes-tb-overflow-sep,
+.visual-notes-tb-mode-sep {
   background: var(--background-modifier-border);
   flex-shrink: 0;
 }
 
 /* vertical toolbars: separator is a horizontal line */
 .tb-pos-left .visual-notes-tb-overflow-sep,
-.tb-pos-right .visual-notes-tb-overflow-sep {
+.tb-pos-right .visual-notes-tb-overflow-sep,
+.tb-pos-left .visual-notes-tb-mode-sep,
+.tb-pos-right .visual-notes-tb-mode-sep {
   width: 40px;
   height: 1px;
   margin: 4px 0;
@@ -739,7 +743,9 @@ path.is-marquee-selected {
 
 /* horizontal toolbars: separator is a vertical line */
 .tb-pos-top .visual-notes-tb-overflow-sep,
-.tb-pos-bottom .visual-notes-tb-overflow-sep {
+.tb-pos-bottom .visual-notes-tb-overflow-sep,
+.tb-pos-top .visual-notes-tb-mode-sep,
+.tb-pos-bottom .visual-notes-tb-mode-sep {
   width: 1px;
   height: 40px;
   margin: 0 4px;
@@ -4701,6 +4707,91 @@ input.visual-notes-accent-pop-hex {
   background: #000;
 }
 
+/* ── Video controls ────────────────────────────────────────────────────────
+   Ours rather than Chromium's. The browser's live in a closed shadow root, so
+   no code here can tell whether a press landed on them — which is what made
+   the card drag and the controls fight over every gesture, unfixably, for
+   three releases. These are ordinary elements, so their own pointerdown
+   handler settles it.
+
+   Kept permanently visible rather than revealed on hover: there is no hover on
+   a touch screen, and controls that cannot be seen before they are pressed are
+   exactly the complaint this replaces. The scrim keeps them legible over any
+   frame without hiding much of it. */
+.visual-notes-video-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2; /* above the video, below the resize handles at 10 */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 18px of side padding, not 8: the bottom corners carry 14px resize
+     handles at a higher z-index, and a play button tucked under one would be
+     unpressable. */
+  padding: 8px 18px;
+  background: linear-gradient(to top, rgb(0 0 0 / 82%), rgb(0 0 0 / 0%));
+  opacity: 0.92;
+  transition: opacity 120ms ease;
+}
+
+.visual-notes-freeform-video-card:hover .visual-notes-video-controls {
+  opacity: 1;
+}
+
+.visual-notes-video-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  color: #fff;
+  cursor: pointer;
+}
+
+.visual-notes-video-btn:hover {
+  background: rgb(255 255 255 / 22%);
+}
+
+.visual-notes-video-btn .svg-icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* Shrinks before it overflows, so a narrow card loses the readout rather than
+   pushing the buttons off the end of the bar. */
+.visual-notes-video-time {
+  flex: 0 1 auto;
+  overflow: hidden;
+  font-size: calc(11px * var(--vn-text-mult, 1));
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.visual-notes-video-scrub {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 4px;
+  margin: 0;
+  border-radius: 2px;
+  cursor: pointer;
+  appearance: none;
+  background: rgb(255 255 255 / 32%);
+}
+
+.visual-notes-video-scrub::-webkit-slider-thumb {
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+}
+
 .visual-notes-video-missing {
   padding: 8px 12px;
   font-size: calc(12px * var(--vn-text-mult, 1));
@@ -5457,6 +5548,21 @@ input.visual-notes-accent-pop-hex {
 .visual-notes-cursor-grab { cursor: grab; }
 .visual-notes-cursor-grabbing { cursor: grabbing; }
 .visual-notes-cursor-crosshair { cursor: crosshair; }
+
+/* Hand mode ("H"): the grab cursor has to win over every card's own cursor,
+   since a left-drag pans from anywhere — including on top of a card, which
+   would otherwise still show a move or text cursor and read as draggable.
+   Specificity by repeated class rather than !important, the same pattern the
+   explorer rules use, because the stylesheet test bans !important outright. */
+.visual-notes-hand-mode.visual-notes-hand-mode,
+.visual-notes-hand-mode.visual-notes-hand-mode * {
+  cursor: grab;
+}
+
+.visual-notes-hand-mode.visual-notes-hand-mode.visual-notes-cursor-grabbing,
+.visual-notes-hand-mode.visual-notes-hand-mode.visual-notes-cursor-grabbing * {
+  cursor: grabbing;
+}
 
 /* freeform-view.ts: kanban drag ghost no pointer events */
 .visual-notes-no-pointer { pointer-events: none; }

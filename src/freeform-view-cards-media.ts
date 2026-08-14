@@ -17,7 +17,7 @@ import { sortAssetFile, saveNewAsset } from './asset-manager';
 import {
   IMAGE_DEFAULT_W, IMAGE_DEFAULT_H, IMAGE_MIN_H,
   BOOKMARK_DEFAULT_W, BOOKMARK_DEFAULT_H, AUDIO_DEFAULT_W, AUDIO_DEFAULT_H,
-  VIDEO_DEFAULT_W, VIDEO_DEFAULT_H, VIDEO_MAX_H, VIDEO_MIN_W, VIDEO_MIN_H,
+  VIDEO_DEFAULT_W, VIDEO_DEFAULT_H, VIDEO_MAX_H, VIDEO_MIN_W, VIDEO_MIN_H, formatVideoTime,
   MAP_DEFAULT_W, MAP_DEFAULT_H,
   AUDIO_EXTS,
   VIDEO_EXTS,
@@ -230,34 +230,130 @@ export const cardsMediaMethods = {
 
     const video = el.createEl('video');
     video.src = this.app.vault.getResourcePath(vf);
-    video.controls = true;
+    // Chromium's own controls are deliberately NOT used. They live in a closed
+    // shadow root, so nothing here can ask whether a press landed on them --
+    // which is what defeated 1.1.28 (a fixed 40px strip, wrong the moment
+    // Chromium split the controls onto two rows on a narrow clip) and then
+    // 1.1.29 (no geometry at all, deferring the drag until the pointer moved).
+    //
+    // 1.1.29 still lost, and the reason names the real problem: it worked with
+    // a mouse and failed on a trackpad. A trackpad click carries a few px of
+    // travel between press and release, which crosses DRAG_THRESHOLD; the card
+    // then takes pointer capture, every remaining event retargets to the card,
+    // and the controls never see the release. No threshold can fix that --
+    // trackpad jitter has no upper bound, and DRAG_THRESHOLD is shared with the
+    // marquee besides.
+    //
+    // Controls we render ourselves have none of that: they are ordinary
+    // elements in this document, so their pointerdown handler stops the canvas
+    // from ever starting a drag, at any jitter, at any card size, on any input
+    // device. The geometry problem does not exist because there is no geometry
+    // to guess.
+    video.controls = false;
     // Enough to draw the first frame as a still, and no more: a moodboard can
     // hold dozens of these, and preloading them whole would read the lot off
     // disk to show pictures nobody has asked to play yet.
     video.preload = 'metadata';
     video.addClass('visual-notes-video-player');
     video.setAttribute('aria-label', vf.basename);
+    // Focus must never land here. A focused <video> consumes space and the
+    // arrow keys for its own play/seek, which is what made the board's space-
+    // to-pan "stop working randomly" -- and those shortcuts were separately
+    // gated on the canvas holding focus, so a click on a video killed them
+    // both ways. See docKeyDown.
+    video.setAttribute('tabindex', '-1');
     el.setAttribute('title', vf.name);
 
-    // Nothing is intercepted here, deliberately. 1.1.27 withheld every press
-    // from the canvas so the controls would work, which left the card
-    // undraggable; 1.1.28 withheld only the bottom 40px, which was wrong
-    // because Chromium lays the controls out in *two* rows on a narrow video
-    // -- a portrait phone clip, exactly what a moodboard is full of -- putting
-    // the play button ~70px up and back outside the strip. Reported as the
-    // player showing but not playing.
-    //
-    // Any guess at that height is wrong somewhere: it varies with the video's
-    // width, the platform, and Obsidian's zoom. So the canvas no longer splits
-    // by geometry at all -- it defers instead, starting a card drag only once
-    // the pointer actually moves (see bindDelegatedCardEvents). A press that
-    // doesn't move is never intercepted, so the controls receive it whatever
-    // layout they happen to be in, and click-to-play is simply the browser's
-    // own behaviour rather than something reimplemented here.
-    //
-    // Only dblclick is claimed, to stop the canvas acting on it. It is not
-    // prevented, so the browser still takes it as "go fullscreen".
-    video.addEventListener('dblclick', (e) => e.stopPropagation());
+    // A press on the video body is still left alone until it moves, so the
+    // card drags from its picture as asked. Body click toggles playback, which
+    // was the browser's own behaviour under native controls and is kept here
+    // now that the controls are ours. A click that ends a real drag is
+    // swallowed by the canvas before it arrives (see bindDelegatedCardEvents).
+    video.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
+    // Not prevented, only kept from the canvas, and mapped to the same thing
+    // the browser used to do with it.
+    video.addEventListener('dblclick', (e) => { e.stopPropagation(); toggleFullscreen(); });
+
+    // ── Controls ────────────────────────────────────────────────────────
+    const controls = el.createDiv('visual-notes-video-controls');
+    // The whole fix, in one line. Our controls are real elements in this
+    // document, so a press on them can be recognised and stopped here before
+    // the canvas's delegated card handler ever sees it -- no capture is taken,
+    // no drag begins, and a few px of trackpad travel changes nothing.
+    controls.addEventListener('pointerdown', (e) => e.stopPropagation());
+    controls.addEventListener('click', (e) => e.stopPropagation());
+    controls.addEventListener('dblclick', (e) => e.stopPropagation());
+
+    const button = (icon: string, label: string): HTMLElement => {
+      const b = controls.createDiv('visual-notes-video-btn');
+      b.setAttribute('role', 'button');
+      // Not focusable: focus belongs to the canvas, see the video's tabindex
+      // above. The controls are reachable by pointer, and the card's own
+      // context menu carries the same actions for the keyboard.
+      b.setAttribute('tabindex', '-1');
+      b.setAttribute('aria-label', label);
+      setIcon(b, icon);
+      return b;
+    };
+
+    const playBtn = button('play', 'Play');
+    const scrub = controls.createEl('input', { cls: 'visual-notes-video-scrub' });
+    scrub.type = 'range'; scrub.min = '0'; scrub.max = '1000'; scrub.value = '0'; scrub.step = '1';
+    scrub.setAttribute('tabindex', '-1');
+    scrub.setAttribute('aria-label', 'Seek');
+    const timeEl = controls.createDiv({ cls: 'visual-notes-video-time', text: '0:00' });
+    const muteBtn = button('volume-2', 'Mute');
+    const fsBtn = button('maximize', 'Fullscreen');
+
+    function togglePlay(): void {
+      if (video.paused) void video.play().catch(() => { /* error event handles it */ });
+      else video.pause();
+    }
+
+    function toggleFullscreen(): void {
+      const doc = el.doc;
+      if (doc.fullscreenElement) { void doc.exitFullscreen().catch(() => { /* nothing useful to do */ }); return; }
+      // Native controls are exactly right in fullscreen -- there is no canvas
+      // there to fight over the gesture, and they handle the keyboard too.
+      video.controls = true;
+      void video.requestFullscreen().catch(() => { video.controls = false; });
+    }
+    // Fires on the element in Chromium, so no document-level listener has to
+    // be registered and torn down.
+    video.addEventListener('fullscreenchange', () => { video.controls = !!el.doc.fullscreenElement; });
+
+    const syncPlay = (): void => {
+      setIcon(playBtn, video.paused ? 'play' : 'pause');
+      playBtn.setAttribute('aria-label', video.paused ? 'Play' : 'Pause');
+      el.toggleClass('is-playing', !video.paused);
+    };
+    video.addEventListener('play', syncPlay);
+    video.addEventListener('pause', syncPlay);
+    video.addEventListener('ended', syncPlay);
+    playBtn.addEventListener('click', togglePlay);
+
+    muteBtn.addEventListener('click', () => {
+      video.muted = !video.muted;
+      setIcon(muteBtn, video.muted ? 'volume-x' : 'volume-2');
+      muteBtn.setAttribute('aria-label', video.muted ? 'Unmute' : 'Mute');
+    });
+    fsBtn.addEventListener('click', toggleFullscreen);
+
+    // Seeking is driven as a permille of duration rather than in seconds, so
+    // the slider needs no rescaling when the duration arrives late.
+    let scrubbing = false;
+    scrub.addEventListener('pointerdown', () => { scrubbing = true; });
+    scrub.addEventListener('pointerup', () => { scrubbing = false; });
+    scrub.addEventListener('input', () => {
+      if (!Number.isFinite(video.duration) || video.duration <= 0) return;
+      video.currentTime = (Number(scrub.value) / 1000) * video.duration;
+    });
+    video.addEventListener('timeupdate', () => {
+      const dur = video.duration;
+      if (!Number.isFinite(dur) || dur <= 0) return;
+      if (!scrubbing) scrub.value = String(Math.round((video.currentTime / dur) * 1000));
+      timeEl.setText(`${formatVideoTime(video.currentTime)} / ${formatVideoTime(dur)}`);
+    });
 
     // mkv and avi generally cannot be decoded by Electron's Chromium, and mov
     // depends on its codec. Rather than a dead black rectangle, offer the one
@@ -268,6 +364,12 @@ export const cardsMediaMethods = {
     // video in a 16:9 box is mostly empty. Mirrors what measureImageH does for
     // images, but from metadata we are loading anyway.
     video.addEventListener('loadedmetadata', () => {
+      // Duration is known now; showing it here rather than waiting for the
+      // first timeupdate means a card that has never been played still reads
+      // "0:00 / 1:23" instead of a bare "0:00".
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        timeEl.setText(`${formatVideoTime(0)} / ${formatVideoTime(video.duration)}`);
+      }
       if (!video.videoWidth || !video.videoHeight) return;
       const cardEl = this.cardEls.get(card.id);
 
@@ -794,7 +896,17 @@ export const cardsMediaMethods = {
     if (draggable?.type === 'folder' && draggable.file instanceof TFolder) return true;
     if (draggable?.type !== 'file' || !(draggable.file instanceof TFile)) return false;
     const ext = draggable.file.extension.toLowerCase();
-    return IMAGE_EXTS.includes(ext) || AUDIO_EXTS.includes(ext) || ext === 'canvas' || ext === 'md';
+    // Every extension the drop handler can actually build a card from has to
+    // be listed here too. This gate runs on dragover, and returning false
+    // means preventDefault is never called — at which point the browser
+    // refuses the drag outright and no drop event is fired at all, so the
+    // matching branch in the drop handler is unreachable rather than merely
+    // unused. Video was added to the drop handler in 1.1.27 and missed here,
+    // which is why a video dragged from the sidebar did nothing while the
+    // same file dropped from the OS worked: an OS drag matches the 'Files'
+    // check above and never reaches this list.
+    return IMAGE_EXTS.includes(ext) || AUDIO_EXTS.includes(ext) || VIDEO_EXTS.includes(ext)
+      || ext === 'canvas' || ext === 'md';
   },
 
   async handleDroppedAudio(this: FreeformRenderer, file: File, x: number, y: number): Promise<void> {

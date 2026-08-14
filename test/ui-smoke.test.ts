@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FreeformRenderer } from '../src/freeform-view';
 import { ContextBar } from '../src/context-bar';
-import { resolveDefaultStickyColor, STICKY_COLORS } from '../src/freeform-view-shared';
+import { resolveDefaultStickyColor, STICKY_COLORS, formatVideoTime } from '../src/freeform-view-shared';
 import { TEXT_CARD_DEFAULT_FONT, TEXT_CARD_MIN_FONT } from '../src/file-types';
 import { PenOptionsPanel, DEFAULT_PEN_DRAW_OPTIONS, type PenDrawOptions } from '../src/pen-options-panel';
 import { visualNotesToCanvas, canvasToVisualNotes } from '../src/canvas-format';
@@ -940,6 +940,157 @@ describe('UI smoke: keyboard shortcut', () => {
 
     renderer.toolbarEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
     expect(board.cards).toHaveLength(1);
+  });
+
+  // The test above fixed that class of bug for onKeyDown's shortcuts in
+  // 1.1.14, but four canvas-level ones kept their own, stricter gate:
+  // `activeDocument.activeElement === this.outer`. They therefore died the
+  // moment focus moved anywhere else and came back when you clicked empty
+  // canvas — reported as "the space bar stops working randomly, and starts
+  // working the same way". Clicking a card, a toolbar button, or a video with
+  // native controls is enough to lose it.
+  it('space-to-pan survives focus leaving the canvas element', () => {
+    const sticky: StickyCard = { id: 's1', kind: 'sticky', x: 0, y: 0, w: 240, h: 160, text: 'hi', color: '#fff' };
+    const { renderer } = setup([sticky]);
+
+    renderer.toolbarEl.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true }));
+
+    expect(renderer.spaceDown).toBe(true);
+  });
+
+  it('does not arm space-to-pan while text is being typed', () => {
+    // The gate that replaced the focus check has to keep this: a space typed
+    // into a card is a space, not a pan.
+    const { renderer, container } = setup([]);
+    const input = container.createEl('input');
+    input.focus();
+
+    input.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true }));
+
+    expect(renderer.spaceDown).toBe(false);
+  });
+
+  it('leaves keys alone when the event comes from another board entirely', () => {
+    // The gate is "inside *this* board", not "inside any board" — two panes
+    // open on two boards must not drive each other.
+    const { renderer } = setup([]);
+    const elsewhere = document.body.createDiv();
+
+    elsewhere.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true }));
+
+    expect(renderer.spaceDown).toBe(false);
+    elsewhere.remove();
+  });
+});
+
+// Asked for as "can we have an option to switch between pointer and hand like
+// press H for hand and V for pointer" — from someone on a trackpad, where the
+// middle/right-button pan is awkward at best.
+describe('UI smoke: select / hand interaction modes', () => {
+  it('starts in select mode', () => {
+    expect(setup([]).renderer.interactionMode).toBe('select');
+  });
+
+  it('H switches to hand and V back to select', () => {
+    const { renderer } = setup([]);
+
+    renderer.outer.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', bubbles: true }));
+    expect(renderer.interactionMode).toBe('hand');
+
+    renderer.outer.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', bubbles: true }));
+    expect(renderer.interactionMode).toBe('select');
+  });
+
+  it('ignores h and v while typing', () => {
+    const { renderer, container } = setup([]);
+    const input = container.createEl('input');
+    input.focus();
+
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', bubbles: true }));
+
+    expect(renderer.interactionMode).toBe('select');
+    input.remove();
+  });
+
+  it('pans from a left-drag on a card, rather than moving it', () => {
+    // The point of the mode: in select mode this same gesture drags the card.
+    const sticky: StickyCard = { id: 's1', kind: 'sticky', x: 100, y: 100, w: 240, h: 160, text: 'hi', color: '#fff' };
+    const { renderer, board } = setup([sticky]);
+    renderer.setInteractionMode('hand');
+    const cardEl = renderer.cardEls.get('s1')!;
+
+    cardEl.dispatchEvent(pointer('pointerdown', 50, 50));
+    renderer.outer.dispatchEvent(pointer('pointermove', 150, 130));
+
+    expect(board.cards[0].x).toBe(100);
+    expect(board.cards[0].y).toBe(100);
+    expect(renderer.isPanning).toBe(true);
+  });
+
+  it('Escape returns to select, so the mode is never a trap', () => {
+    const { renderer } = setup([]);
+    renderer.setInteractionMode('hand');
+
+    renderer.outer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    expect(renderer.interactionMode).toBe('select');
+  });
+
+  it('arming a placement tool leaves hand mode', () => {
+    // Otherwise the click meant to place the card would be swallowed as a pan.
+    const { renderer } = setup([]);
+    renderer.setInteractionMode('hand');
+
+    renderer.activateTool('sticky', renderer.textToolBtn!);
+
+    expect(renderer.interactionMode).toBe('select');
+  });
+});
+
+// There was no arrow-key handler at all before this, which is why the report
+// of "arrow keys stop working randomly" was really the focused <video>
+// seeking, not a board feature misbehaving.
+describe('UI smoke: arrow-key nudge', () => {
+  function withSticky() {
+    const sticky: StickyCard = { id: 's1', kind: 'sticky', x: 100, y: 100, w: 240, h: 160, text: 'hi', color: '#fff' };
+    const s = setup([sticky]);
+    s.renderer.selection.select('s1');
+    s.renderer.refreshSelectionVisuals();
+    return s;
+  }
+
+  it('moves the selection one unit', () => {
+    const { renderer, board } = withSticky();
+    renderer.outer.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(board.cards[0].x).toBe(101);
+
+    renderer.outer.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(board.cards[0].y).toBe(99);
+  });
+
+  it('takes a coarse step with Shift', () => {
+    const { renderer, board } = withSticky();
+    renderer.outer.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', shiftKey: true, bubbles: true }));
+    expect(board.cards[0].y).toBe(110);
+  });
+
+  it('is undoable as one step', () => {
+    const { renderer, board } = withSticky();
+    renderer.outer.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    renderer.undo();
+    expect(board.cards[0].x).toBe(100);
+  });
+
+  it('leaves the keypress alone when nothing is selected', () => {
+    // So an arrow key still reaches whatever else might want it.
+    const { renderer, board } = withSticky();
+    renderer.selection.clear();
+
+    const e = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+    renderer.outer.dispatchEvent(e);
+
+    expect(board.cards[0].x).toBe(100);
+    expect(e.defaultPrevented).toBe(false);
   });
 });
 
@@ -3091,13 +3242,90 @@ describe('UI smoke: video cards', () => {
     return { ...setup([card], [], 'bottom-right', vault), card };
   }
 
+  // isDropAccepted runs on dragover, and returning false means preventDefault
+  // is never called — at which point the browser refuses the drag outright and
+  // fires no drop event at all. So an extension missing from this list makes
+  // the matching branch in the drop handler unreachable, not merely unused.
+  //
+  // Video was added to the drop handler in 1.1.27 and missed here, so dragging
+  // a video from the sidebar did nothing for three releases while the same
+  // file dropped from the OS worked — an OS drag matches the 'Files' check
+  // first and never reaches this list. Reported exactly that way.
+  describe('the dragover gate', () => {
+    function accepts(path: string): boolean {
+      const vault = new FakeVault();
+      const file = vault.putText(path, 'x');
+      const { renderer } = setup([], [], 'bottom-right', vault);
+      (renderer.app as unknown as { dragManager: unknown }).dragManager = {
+        draggable: { type: 'file', file },
+      };
+      return renderer.isDropAccepted({ dataTransfer: { types: [] } } as unknown as DragEvent);
+    }
+
+    it.each(['clip.mp4', 'clip.webm', 'clip.mov', 'clip.m4v', 'clip.mkv', 'clip.avi', 'clip.ogv'])(
+      'permits %s, so the drop handler can build a video card', (name) => {
+        expect(accepts(name)).toBe(true);
+      });
+
+    it('still permits the kinds it always did', () => {
+      expect(accepts('pic.png')).toBe(true);
+      expect(accepts('song.mp3')).toBe(true);
+      expect(accepts('note.md')).toBe(true);
+      expect(accepts('board.canvas')).toBe(true);
+    });
+
+    it('still refuses what it has no card for', () => {
+      expect(accepts('archive.zip')).toBe(false);
+    });
+  });
+
+  describe('formatVideoTime', () => {
+    it('reads as m:ss, padding the seconds', () => {
+      expect(formatVideoTime(0)).toBe('0:00');
+      expect(formatVideoTime(9)).toBe('0:09');
+      expect(formatVideoTime(83)).toBe('1:23');
+      expect(formatVideoTime(599)).toBe('9:59');
+    });
+
+    it('grows an hours field only once there are hours', () => {
+      expect(formatVideoTime(3600)).toBe('1:00:00');
+      expect(formatVideoTime(3661)).toBe('1:01:01');
+      expect(formatVideoTime(3599)).toBe('59:59');
+    });
+
+    it('survives the duration a <video> reports before its metadata lands', () => {
+      // NaN until loadedmetadata, and Infinity for a stream — both would
+      // otherwise render as "NaN:NaN" on a card that has just appeared.
+      expect(formatVideoTime(NaN)).toBe('0:00');
+      expect(formatVideoTime(Infinity)).toBe('0:00');
+      expect(formatVideoTime(-1)).toBe('0:00');
+    });
+  });
+
   it('renders a real player, not an icon', () => {
     const { container } = withVideo();
     const video = container.querySelector<HTMLVideoElement>('video.visual-notes-video-player');
 
     expect(video).not.toBeNull();
-    expect(video!.controls).toBe(true);
     expect(video!.getAttribute('src')).toBe(`fake-resource://${CLIP}`);
+  });
+
+  it('uses our own controls, not the browser\'s', () => {
+    // Chromium's live in a closed shadow root, so no code here can tell
+    // whether a press landed on them. That is what made the card drag and the
+    // controls fight over the same gesture through 1.1.27, .28 and .29.
+    const { container } = withVideo();
+    expect(container.querySelector<HTMLVideoElement>('video')!.controls).toBe(false);
+    expect(container.querySelector('.visual-notes-video-controls')).not.toBeNull();
+    expect(container.querySelectorAll('.visual-notes-video-btn').length).toBe(3);
+    expect(container.querySelector('.visual-notes-video-scrub')).not.toBeNull();
+  });
+
+  it('keeps focus off the video, so the board keeps its keyboard', () => {
+    // A focused <video> eats space and the arrow keys for its own play/seek,
+    // which is half of "the space bar stops working randomly".
+    const { container } = withVideo();
+    expect(container.querySelector('video')!.getAttribute('tabindex')).toBe('-1');
   });
 
   it('loads only metadata, so a board of clips does not read them all off disk', () => {
@@ -3150,6 +3378,60 @@ describe('UI smoke: video cards', () => {
     cardEl.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 200, clientY: 200, buttons: 1 }));
 
     expect(captured).toHaveBeenCalled();
+  });
+
+  // The report that finally identified the cause: the controls worked with a
+  // mouse and did nothing on a trackpad. A trackpad click carries a few px of
+  // travel between press and release, which crosses DRAG_THRESHOLD; the card
+  // then takes pointer capture, every later event retargets to it, and the
+  // control never sees the release. No threshold fixes that — jitter has no
+  // upper bound. Controls we own do, because their pointerdown never reaches
+  // the canvas at all.
+  it('never starts a card drag from a press on the controls, however shaky', () => {
+    const { container } = withVideo();
+    const cardEl = container.querySelector<HTMLElement>('.visual-notes-freeform-card[data-id="v1"]')!;
+    const captured = vi.fn();
+    cardEl.setPointerCapture = captured;
+    const playBtn = container.querySelector<HTMLElement>('.visual-notes-video-btn')!;
+
+    playBtn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 50, clientY: 50, buttons: 1 }));
+    // Far past the 5px threshold — a deliberate drag, let alone a wobble.
+    cardEl.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 400, clientY: 400, buttons: 1 }));
+
+    expect(captured).not.toHaveBeenCalled();
+  });
+
+  it('plays and pauses from the play button', () => {
+    const { container } = withVideo();
+    const video = container.querySelector<HTMLVideoElement>('video')!;
+    // jsdom implements neither, and both are what the button is for.
+    const play = vi.fn(() => Promise.resolve());
+    const pause = vi.fn();
+    video.play = play; video.pause = pause;
+    const playBtn = container.querySelector<HTMLElement>('.visual-notes-video-btn')!;
+
+    Object.defineProperty(video, 'paused', { value: true, configurable: true });
+    playBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(play).toHaveBeenCalled();
+
+    Object.defineProperty(video, 'paused', { value: false, configurable: true });
+    playBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(pause).toHaveBeenCalled();
+  });
+
+  it('still plays from a click on the video body', () => {
+    // Kept from the native-controls behaviour: this is what the reporter had
+    // to fall back on while the buttons were dead, and removing it now would
+    // read as another regression.
+    const { container } = withVideo();
+    const video = container.querySelector<HTMLVideoElement>('video')!;
+    const play = vi.fn(() => Promise.resolve());
+    video.play = play; video.pause = vi.fn();
+    Object.defineProperty(video, 'paused', { value: true, configurable: true });
+
+    video.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(play).toHaveBeenCalled();
   });
 
   it('still moves the card when dragged by its video', () => {

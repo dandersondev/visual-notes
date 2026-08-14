@@ -48,6 +48,7 @@ import {
   CALENDAR_DEFAULT_W, CALENDAR_DEFAULT_H,
   CHECKERS_DEFAULT_W, CHECKERS_DEFAULT_H,
   DRAG_THRESHOLD, IMAGE_EXTS, CONN_COLOR_PRESETS,
+  isTypingElement, ARROW_NUDGE, NUDGE_FINE, NUDGE_COARSE,
   isColumnChildKind,
   AppWithPrivateAPIs, SupportedCard, cardMinSize,
   isValidURL, openExternalUrl,
@@ -374,36 +375,61 @@ export const canvasMethods = {
       // (what the key event actually fired on) rather than
       // activeDocument.activeElement — the two always agree for a real
       // keypress, but target is what's actually available here.
-      if (e.target instanceof Node && this.container.contains(e.target)) this.onKeyDown(e);
-      if (e.code === 'Space' && activeDocument.activeElement === this.outer) {
+      const withinBoard = e.target instanceof Node && this.container.contains(e.target);
+      if (withinBoard) this.onKeyDown(e);
+
+      // The shortcuts below used to carry their own, much stricter gate:
+      // `activeDocument.activeElement === this.outer`, i.e. the canvas
+      // element itself had to hold focus. That is the very bug the comment
+      // above describes, left unfixed on these four — they died the moment
+      // focus moved anywhere else and came back when you clicked empty
+      // canvas, which is how it was reported: "space bar and arrow keys
+      // stop working randomly, and start working the same way".
+      //
+      // Clicking a card, a toolbar button or (with native controls) a video
+      // all move focus off `.outer`, so in practice these worked only until
+      // you touched anything. The gate that was actually wanted is the one
+      // onKeyDown uses: somewhere inside this board, and not typing.
+      if (!withinBoard || isTypingElement(activeDocument.activeElement)) return;
+
+      if (e.code === 'Space') {
         e.preventDefault(); this.spaceDown = true;
         if (!this.isPanning) this.setCursor('grab');
       }
-      // Ctrl/Cmd+F opens board search when focus is on the canvas itself
-      // (not while typing in a card) — Obsidian has no in-view search for
+      // Ctrl/Cmd+F opens board search — Obsidian has no in-view search for
       // this custom view type, so this doesn't shadow anything.
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f' && activeDocument.activeElement === this.outer) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault();
         this.openSearch();
       }
       // "/" opens the quick-add palette (Notion-style slash command).
-      if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && activeDocument.activeElement === this.outer) {
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         this.openQuickAdd();
       }
       // "T" arms the text tool, then the next click on the canvas places it —
       // the same two-step every toolbar button uses, rather than dropping a
-      // card at a guessed position. Gated on the canvas itself holding focus,
-      // so a plain "t" typed into any editor is untouched.
-      if ((e.key === 't' || e.key === 'T') && !e.ctrlKey && !e.metaKey && !e.altKey && activeDocument.activeElement === this.outer) {
+      // card at a guessed position.
+      if ((e.key === 't' || e.key === 'T') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         if (this.textToolBtn) this.activateTool('text', this.textToolBtn);
+      }
+      // "V" selects, "H" pans — the standard canvas pair, and the reason
+      // they were asked for: panning otherwise needs a middle or right
+      // button, which a trackpad or tablet may not comfortably offer.
+      if ((e.key === 'v' || e.key === 'V') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault(); this.setInteractionMode('select');
+      }
+      if ((e.key === 'h' || e.key === 'H') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault(); this.setInteractionMode('hand');
       }
     };
     this.docKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         this.spaceDown = false;
-        if (!this.isPanning) this.setCursor('');
+        // Releasing space returns to whatever the mode says, which is still
+        // a grab cursor in hand mode rather than the default arrow.
+        if (!this.isPanning) this.setCursor(this.interactionMode === 'hand' ? 'grab' : '');
       }
     };
     activeDocument.addEventListener('keydown', this.docKeyDown);
@@ -416,7 +442,10 @@ export const canvasMethods = {
       if (e.button === 1) e.preventDefault();
     }, { capture: true });
     this.outer.addEventListener('pointerdown', (e) => {
-      if (this.isPanButton(e.button) || (e.button === 0 && this.spaceDown)) {
+      // Hand mode joins the pan button and space-drag here, in the capture
+      // phase, so a left-drag pans even when it starts on top of a card —
+      // the card's own delegated handler never sees it.
+      if (this.isPanButton(e.button) || (e.button === 0 && (this.spaceDown || this.interactionMode === 'hand'))) {
         e.preventDefault(); e.stopPropagation(); this.startPan(e);
       }
     }, { capture: true });
@@ -788,7 +817,7 @@ export const canvasMethods = {
       if (ue.pointerId !== pid) return;
       window.removeEventListener('pointermove', onMove, true);
       window.removeEventListener('pointerup', onUp, true);
-      this.isPanning = false; this.setCursor(this.spaceDown ? 'grab' : ''); this.scheduleSave();
+      this.isPanning = false; this.setCursor(this.spaceDown || this.interactionMode === 'hand' ? 'grab' : ''); this.scheduleSave();
       // A right-button pan that actually moved the viewport shouldn't also
       // pop the browser's context menu on release — see the contextmenu
       // listener above, which consumes this flag.
@@ -1555,14 +1584,34 @@ export const canvasMethods = {
   // Only ever called from docKeyDown, which already handles pen-mode exit
   // (Escape/Enter) unconditionally before reaching here — see there.
   onKeyDown(this: FreeformRenderer, e: KeyboardEvent): void {
-    const active = activeDocument.activeElement;
-    const isTyping = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
-      || (active instanceof HTMLElement && active.getAttribute('contenteditable') != null);
-    if (isTyping) return;
+    if (isTypingElement(activeDocument.activeElement)) return;
 
     const meta = e.metaKey || e.ctrlKey;
+
+    // Arrow keys nudge the selection, the movement every canvas offers for
+    // placement finer than a drag. Shift makes it a coarse step. Deliberately
+    // not bound while nothing is selected, so the keypress still reaches
+    // whatever else might want it.
+    const nudge = ARROW_NUDGE[e.key];
+    if (nudge && !meta && !this.selection.isEmpty()) {
+      e.preventDefault();
+      const step = e.shiftKey ? NUDGE_COARSE : NUDGE_FINE;
+      this.pushUndo();
+      for (const id of this.selection.getIds()) {
+        const c = this.board.cards.find(x => x.id === id);
+        if (!c) continue;
+        c.x = (c.x ?? 0) + nudge.dx * step; c.y = (c.y ?? 0) + nudge.dy * step;
+        const cardEl = this.cardEls.get(id);
+        if (cardEl) { cardEl.style.left = `${c.x}px`; cardEl.style.top = `${c.y}px`; }
+        this.updateConnectionsForCard(id);
+      }
+      this.contextBar?.reposition();
+      this.scheduleSave();
+      return;
+    }
     if (e.key === 'Escape') {
       if (this.pendingTool) { this.clearPendingTool(); return; }
+      if (this.interactionMode === 'hand') { this.setInteractionMode('select'); return; }
       if (this.overflowPopover) { this.closeOverflow(); return; }
       if (this.connectMode) { this.exitConnectMode(); return; }
       if (this.selectedConnectionId) { this.deselectConnection(); return; }
@@ -1763,6 +1812,9 @@ export const canvasMethods = {
     this.exitConnectMode();
     this.exitPenMode();
     this.clearPendingTool();
+    // Arming a placement tool implies wanting to click the canvas, which
+    // hand mode would swallow as a pan — so picking a tool leaves it.
+    this.setInteractionMode('select');
     this.pendingTool = name;
     this.pendingToolBtn = btn;
     btn.addClass('is-active');
@@ -1773,7 +1825,7 @@ export const canvasMethods = {
     this.pendingToolBtn?.removeClass('is-active');
     this.pendingTool = null;
     this.pendingToolBtn = null;
-    if (!this.connectMode) this.setCursor('');
+    if (!this.connectMode) this.setCursor(this.interactionMode === 'hand' ? 'grab' : '');
   },
 
   placePendingTool(this: FreeformRenderer, cx: number, cy: number): void {

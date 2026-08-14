@@ -2,6 +2,17 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.1.30
+
+### Fixed
+- **Dragging a video in from the file explorer now works.** It did nothing at all — no card, no error, the file simply refused to drop — while dragging the very same file in from your desktop worked. A board checks what it will accept while a drag is still moving over it, and video was never added to that list when video cards were introduced in 1.1.27, so the drop was refused before the code that builds the card could run. A drag from outside Obsidian took a different route and never reached the list, which is why one worked and the other didn't. Affects every video format, not only `.mp4`.
+- **The video controls now work on a trackpad.** Play, pause, the scrubber, volume and fullscreen worked with a mouse and did nothing on a trackpad — the third report of these controls failing, and the one that finally explained the previous two. A trackpad click carries a little movement between press and release; the board read that movement as the start of dragging the card and took the gesture over, so the button never received it. A mouse click carries no movement, which is why the same card behaved differently on a desktop and a laptop. Rather than guess at a tolerance that would work on every trackpad, Visual Notes now draws the controls itself instead of using the browser's, so a press on them is recognised as a press on them and never becomes a drag. Dragging a card by its picture is unchanged, and clicking the picture still plays.
+- **The space bar and other board shortcuts no longer stop working at random.** Holding space to pan, Ctrl+F to search, `/` for quick-add and `T` for the text tool all quietly stopped after you clicked almost anything — a card, a toolbar button, a video — and started working again once you clicked an empty part of the canvas. They required the canvas itself to be the focused element, which almost nothing leaves true. Reported as shortcuts that "stop working randomly and start working the same way".
+
+### Added
+- **Hand and select modes.** Press **H** for the hand and **V** to go back to selecting, or use the two new buttons at the top of the toolbar. In hand mode a plain left-drag pans the board from anywhere, including on top of a card. Panning otherwise needs a middle or right button, which is awkward on a trackpad and worse on a tablet. Holding space still pans in either mode, and **Escape** returns to selecting. Requested by a user; thank you.
+- **Arrow keys nudge the selected cards.** One point at a time, or ten with **Shift** held, and each nudge undoes in a single step. Useful for lining cards up more precisely than a drag allows.
+
 ## 1.1.29
 
 ### Fixed

@@ -203,6 +203,14 @@ export class FreeformRenderer extends Component {
 
   spaceDown = false;
   isPanning = false;
+  // 'hand' turns a plain left-drag anywhere — background or over a card —
+  // into a pan, and stops cards selecting or dragging. Distinct from
+  // pendingTool, which is a one-shot placement armed for the next click;
+  // this is a mode that stays until changed. Space still works as the
+  // momentary override in either mode, so the two don't compete.
+  interactionMode: 'select' | 'hand' = 'select';
+  handModeBtn: HTMLElement | null = null;
+  selectModeBtn: HTMLElement | null = null;
   // Set when a right-click-to-pan drag (see startPan) actually moves the
   // viewport, so the contextmenu event Chrome/Firefox fire on right-button
   // release doesn't pop a menu on top of what was really just a pan gesture.
@@ -405,6 +413,20 @@ export class FreeformRenderer extends Component {
   setCursor(cursor: '' | 'grab' | 'grabbing' | 'crosshair'): void {
     this.outer.removeClass('visual-notes-cursor-grab', 'visual-notes-cursor-grabbing', 'visual-notes-cursor-crosshair');
     if (cursor) this.outer.addClass(`visual-notes-cursor-${cursor}`);
+  }
+
+  // Switches between select ("V") and hand ("H"). Kept here rather than
+  // alongside activateTool because it is not a placement tool: nothing is
+  // armed for one click, and it does not clear itself after use.
+  setInteractionMode(mode: 'select' | 'hand'): void {
+    if (this.interactionMode === mode) return;
+    this.interactionMode = mode;
+    this.outer.toggleClass('visual-notes-hand-mode', mode === 'hand');
+    this.handModeBtn?.toggleClass('is-active', mode === 'hand');
+    this.selectModeBtn?.toggleClass('is-active', mode === 'select');
+    // Space held at the moment of the switch keeps its own grab cursor;
+    // otherwise the mode decides it.
+    if (!this.isPanning) this.setCursor(mode === 'hand' || this.spaceDown ? 'grab' : '');
   }
 
   // ── Viewport ───────────────────────────────────────────────────
