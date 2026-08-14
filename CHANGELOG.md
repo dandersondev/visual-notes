@@ -2,6 +2,13 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.1.32
+
+### Added
+- **Dragging a file onto a board now works on iPad.** Long-press a file in Obsidian's file explorer, drag it over a board and let go: it becomes a card, exactly as it does on a desktop. Images, videos, audio, notes, canvases and folders all arrive as the card they should. The long press is Obsidian's own way of picking a file up on a touch screen — it has to be, so the file list can still be scrolled — and only the release needed handling here.
+
+  This supersedes the known limitation noted in 1.1.31. That note was written on the understanding that Obsidian could not start such a drag on iPad at all. It can: it just completes the drag in a way that a plugin has to listen for differently, and once that was clear the rest followed.
+
 ## 1.1.31
 
 Three iPad fixes, all reported together.

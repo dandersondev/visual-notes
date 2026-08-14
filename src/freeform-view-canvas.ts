@@ -48,9 +48,9 @@ import {
   CALENDAR_DEFAULT_W, CALENDAR_DEFAULT_H,
   CHECKERS_DEFAULT_W, CHECKERS_DEFAULT_H,
   DRAG_THRESHOLD, IMAGE_EXTS, CONN_COLOR_PRESETS,
-  isTypingElement, ARROW_NUDGE, NUDGE_FINE, NUDGE_COARSE, isInEdgeSwipeZone,
+  isTypingElement, ARROW_NUDGE, NUDGE_FINE, NUDGE_COARSE, isInEdgeSwipeZone, NATIVE_DROP_GRACE_MS,
   isColumnChildKind,
-  AppWithPrivateAPIs, SupportedCard, cardMinSize,
+  AppWithPrivateAPIs, DragManager, SupportedCard, cardMinSize,
   isValidURL, openExternalUrl,
   KanbanItemColorModal,
 } from './freeform-view-shared';
@@ -63,6 +63,7 @@ declare module './freeform-view' {
     disposeCardResources(id: string): void;
     bindCanvasEvents(): void;
     isPanButton(button: number): boolean;
+    dropVaultDraggableAt(draggable: DragManager['draggable'], clientX: number, clientY: number): Promise<boolean>;
     startPan(e: PointerEvent): void;
     cancelLongPress(): void;
     maybeStartTouchPan(e: PointerEvent): void;
@@ -703,110 +704,164 @@ export const canvasMethods = {
       // Vault sidebar file drag
       const dragMgr = (this.app as AppWithPrivateAPIs).dragManager;
       const draggable = dragMgr?.draggable;
-      if (draggable?.type === 'file' && draggable.file instanceof TFile) {
-        const vf = draggable.file;
-        const ext = vf.extension.toLowerCase();
-        const rect = this.outer.getBoundingClientRect();
-        const cp = screenToCanvas(e.clientX - rect.left, e.clientY - rect.top, this.vp);
-        if (IMAGE_EXTS.includes(ext)) {
-          const newPath = await sortAssetFile(this.app, vf);
-          const newFile = this.app.vault.getAbstractFileByPath(newPath);
-          if (!(newFile instanceof TFile)) return;
-          const h = await this.measureImageH(this.app.vault.getResourcePath(newFile));
-          const card: ImageCard = {
-            id: crypto.randomUUID(), kind: 'image',
-            x: this.applySnap(cp.x - IMAGE_DEFAULT_W / 2), y: this.applySnap(cp.y - h / 2),
-            w: IMAGE_DEFAULT_W, h, z: this.nextZ(),
-            source: { type: 'vault', path: newPath }, captionHidden: true,
-          };
-          this.pushUndo(); this.board.cards.push(card); await this.saveNow();
-          this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
-        } else if (AUDIO_EXTS.includes(ext)) {
-          const newPath = await sortAssetFile(this.app, vf);
-          const card: AudioCard = {
-            id: crypto.randomUUID(), kind: 'audio',
-            x: this.applySnap(cp.x - AUDIO_DEFAULT_W / 2), y: this.applySnap(cp.y - AUDIO_DEFAULT_H / 2),
-            w: AUDIO_DEFAULT_W, h: AUDIO_DEFAULT_H, z: this.nextZ(),
-            source: { type: 'vault', path: newPath },
-          };
-          this.pushUndo(); this.board.cards.push(card); await this.saveNow();
-          this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
-        } else if (VIDEO_EXTS.includes(ext)) {
-          // Plays where it lands, rather than becoming an icon you have to
-          // open elsewhere — which is what Obsidian's own Canvas does with a
-          // dropped video, and what this was missing.
-          const newPath = await sortAssetFile(this.app, vf);
-          const card: VideoCard = {
-            id: crypto.randomUUID(), kind: 'video',
-            x: this.applySnap(cp.x - VIDEO_DEFAULT_W / 2), y: this.applySnap(cp.y - VIDEO_DEFAULT_H / 2),
-            w: VIDEO_DEFAULT_W, h: VIDEO_DEFAULT_H, z: this.nextZ(),
-            source: { type: 'vault', path: newPath },
-          };
-          this.pushUndo(); this.board.cards.push(card); await this.saveNow();
-          this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
-        } else if (ext === 'md' && isClippedPage(this.app, vf)) {
-          // A clipped page dropped onto the canvas becomes the same card the
-          // clip importer would have made, rather than a tile you have to
-          // open to see anything. Identified by the note carrying a source
-          // URL in its properties rather than by which folder it sits in, so
-          // a clip filed away somewhere else still looks like a clip.
-          const card: NoteLinkCard = {
-            id: crypto.randomUUID(), kind: 'note-link',
-            x: this.applySnap(cp.x - NOTELINK_DEFAULT_W / 2), y: this.applySnap(cp.y - NOTELINK_DEFAULT_H / 2),
-            w: NOTELINK_DEFAULT_W, h: NOTELINK_DEFAULT_H, z: this.nextZ(),
-            path: vf.path, displayMode: 'preview',
-            clipSourceUrl: clipMetaFromFrontmatter(this.app.metadataCache.getFileCache(vf)?.frontmatter).sourceUrl,
-          };
-          this.pushUndo(); this.board.cards.push(card); await this.saveNow();
-          this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
-        } else if (ext === 'canvas' || ext === 'md') {
-          // Note / canvas link, dropped the same way native Canvas turns a
-          // dragged file into a file node — here it becomes a tile that
-          // navigates to (or opens) the dropped file. A dropped .canvas
-          // file that's itself a Visual Notes board becomes a "nested
-          // board" tile (kind 'board'); a plain native canvas becomes a
-          // "canvas" tile (kind 'canvas') that just opens it directly.
-          const isBoard = ext === 'canvas' && await isVisualNotesOwnedFile(this.app, vf);
-          const targetKind: TileTarget['kind'] = ext === 'md' ? 'note' : (isBoard ? 'board' : 'canvas');
-          const card: TileCard = {
-            id: crypto.randomUUID(), kind: 'tile',
-            x: this.applySnap(cp.x - TILE_DEFAULT_W / 2), y: this.applySnap(cp.y - TILE_DEFAULT_H / 2),
-            w: TILE_DEFAULT_W, h: TILE_DEFAULT_H, z: this.nextZ(),
-            label: vf.basename,
-            icon: targetKind === 'board' ? 'layout-dashboard' : ext === 'md' ? 'file-text' : 'layout-grid',
-            color: '#3B82F6',
-            target: { kind: targetKind, path: vf.path },
-          };
-          this.pushUndo(); this.board.cards.push(card); await this.saveNow();
-          this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
-        } else {
-          // Any other vault file (PDF, zip, spreadsheet, …) → generic file card.
-          const newPath = await sortAssetFile(this.app, vf);
-          const isPdf = ext === 'pdf';
-          const card: FileCard = {
-            id: crypto.randomUUID(), kind: 'file',
-            x: this.applySnap(cp.x - FILE_DEFAULT_W / 2), y: this.applySnap(cp.y - FILE_DEFAULT_H / 2),
-            w: FILE_DEFAULT_W, h: isPdf ? FILE_DEFAULT_H : 150, z: this.nextZ(), path: newPath,
-          };
-          this.pushUndo(); this.board.cards.push(card); await this.saveNow();
-          this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
-        }
-      } else if (draggable?.type === 'folder' && draggable.file instanceof TFolder) {
-        const folder = draggable.file;
-        const rect = this.outer.getBoundingClientRect();
-        const cp = screenToCanvas(e.clientX - rect.left, e.clientY - rect.top, this.vp);
+      if (await this.dropVaultDraggableAt(draggable, e.clientX, e.clientY)) {
+        this.lastNativeDropAt = Date.now();
+      }
+    })(); });
+
+    // The same drop, arriving as a touch release instead.
+    //
+    // Obsidian's sidebar drag on iPad is its own, driven by touch: it sets
+    // dragManager.draggable and paints a filename pill under the finger, but
+    // it is not a native drag session, so no dragover/drop pair is ever fired
+    // and the handler above cannot see it. Reported as being able to drag a
+    // file over the canvas, see its name follow the finger, and have nothing
+    // happen on release.
+    //
+    // Reading dragManager on release is what catches it. Nothing here
+    // simulates a drag or tracks one in progress — Obsidian has already done
+    // that work, and this only asks what it is holding at the moment the
+    // finger lifts over this board.
+    // Registered on the document, not on `.outer`, and in the capture phase:
+    // Obsidian is dragging its own element, and if it has taken pointer
+    // capture then every later pointer event — the release included — is
+    // retargeted at that element and never reaches this canvas at all. That
+    // is the same retargeting that made the video controls unusable for three
+    // releases, so it is designed around here rather than discovered later.
+    // Which board it belongs to is settled by hit-testing the release point
+    // against this canvas, which also keeps two open panes from both acting.
+    this.docPointerUp = (e: PointerEvent) => { void (async () => {
+      // Touch only. A mouse drag produces a real drop event, and running both
+      // paths would add the card twice.
+      if (e.pointerType !== 'touch') return;
+      // Belt and braces for any platform that fires both: a native drop that
+      // just landed wins, and this stands down.
+      if (Date.now() - this.lastNativeDropAt < NATIVE_DROP_GRACE_MS) return;
+      const draggable = (this.app as AppWithPrivateAPIs).dragManager?.draggable;
+      if (!draggable) return;
+      const r = this.outer.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
+      await this.dropVaultDraggableAt(draggable, e.clientX, e.clientY);
+    })(); };
+    activeDocument.addEventListener('pointerup', this.docPointerUp, { capture: true });
+  },
+
+  // Builds the right card for a file or folder dragged out of Obsidian's own
+  // sidebar, at the given screen point. Extracted from the drop handler so a
+  // touch drag can reach it too: on iPad the sidebar drag is driven by touch
+  // and never produces a dragover/drop pair, so the handler below is never
+  // called. See the pointerup listener in bindCanvasEvents.
+  //
+  // Returns whether a card was actually added, so a caller can tell a handled
+  // drop from one that fell through.
+  async dropVaultDraggableAt(this: FreeformRenderer, draggable: DragManager['draggable'], clientX: number, clientY: number): Promise<boolean> {
+    const e = { clientX, clientY };
+    if (draggable?.type === 'file' && draggable.file instanceof TFile) {
+      const vf = draggable.file;
+      const ext = vf.extension.toLowerCase();
+      const rect = this.outer.getBoundingClientRect();
+      const cp = screenToCanvas(e.clientX - rect.left, e.clientY - rect.top, this.vp);
+      if (IMAGE_EXTS.includes(ext)) {
+        const newPath = await sortAssetFile(this.app, vf);
+        const newFile = this.app.vault.getAbstractFileByPath(newPath);
+        if (!(newFile instanceof TFile)) return false;
+        const h = await this.measureImageH(this.app.vault.getResourcePath(newFile));
+        const card: ImageCard = {
+          id: crypto.randomUUID(), kind: 'image',
+          x: this.applySnap(cp.x - IMAGE_DEFAULT_W / 2), y: this.applySnap(cp.y - h / 2),
+          w: IMAGE_DEFAULT_W, h, z: this.nextZ(),
+          source: { type: 'vault', path: newPath }, captionHidden: true,
+        };
+        this.pushUndo(); this.board.cards.push(card); await this.saveNow();
+        this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
+      } else if (AUDIO_EXTS.includes(ext)) {
+        const newPath = await sortAssetFile(this.app, vf);
+        const card: AudioCard = {
+          id: crypto.randomUUID(), kind: 'audio',
+          x: this.applySnap(cp.x - AUDIO_DEFAULT_W / 2), y: this.applySnap(cp.y - AUDIO_DEFAULT_H / 2),
+          w: AUDIO_DEFAULT_W, h: AUDIO_DEFAULT_H, z: this.nextZ(),
+          source: { type: 'vault', path: newPath },
+        };
+        this.pushUndo(); this.board.cards.push(card); await this.saveNow();
+        this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
+      } else if (VIDEO_EXTS.includes(ext)) {
+        // Plays where it lands, rather than becoming an icon you have to
+        // open elsewhere — which is what Obsidian's own Canvas does with a
+        // dropped video, and what this was missing.
+        const newPath = await sortAssetFile(this.app, vf);
+        const card: VideoCard = {
+          id: crypto.randomUUID(), kind: 'video',
+          x: this.applySnap(cp.x - VIDEO_DEFAULT_W / 2), y: this.applySnap(cp.y - VIDEO_DEFAULT_H / 2),
+          w: VIDEO_DEFAULT_W, h: VIDEO_DEFAULT_H, z: this.nextZ(),
+          source: { type: 'vault', path: newPath },
+        };
+        this.pushUndo(); this.board.cards.push(card); await this.saveNow();
+        this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
+      } else if (ext === 'md' && isClippedPage(this.app, vf)) {
+        // A clipped page dropped onto the canvas becomes the same card the
+        // clip importer would have made, rather than a tile you have to
+        // open to see anything. Identified by the note carrying a source
+        // URL in its properties rather than by which folder it sits in, so
+        // a clip filed away somewhere else still looks like a clip.
+        const card: NoteLinkCard = {
+          id: crypto.randomUUID(), kind: 'note-link',
+          x: this.applySnap(cp.x - NOTELINK_DEFAULT_W / 2), y: this.applySnap(cp.y - NOTELINK_DEFAULT_H / 2),
+          w: NOTELINK_DEFAULT_W, h: NOTELINK_DEFAULT_H, z: this.nextZ(),
+          path: vf.path, displayMode: 'preview',
+          clipSourceUrl: clipMetaFromFrontmatter(this.app.metadataCache.getFileCache(vf)?.frontmatter).sourceUrl,
+        };
+        this.pushUndo(); this.board.cards.push(card); await this.saveNow();
+        this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
+      } else if (ext === 'canvas' || ext === 'md') {
+        // Note / canvas link, dropped the same way native Canvas turns a
+        // dragged file into a file node — here it becomes a tile that
+        // navigates to (or opens) the dropped file. A dropped .canvas
+        // file that's itself a Visual Notes board becomes a "nested
+        // board" tile (kind 'board'); a plain native canvas becomes a
+        // "canvas" tile (kind 'canvas') that just opens it directly.
+        const isBoard = ext === 'canvas' && await isVisualNotesOwnedFile(this.app, vf);
+        const targetKind: TileTarget['kind'] = ext === 'md' ? 'note' : (isBoard ? 'board' : 'canvas');
         const card: TileCard = {
           id: crypto.randomUUID(), kind: 'tile',
           x: this.applySnap(cp.x - TILE_DEFAULT_W / 2), y: this.applySnap(cp.y - TILE_DEFAULT_H / 2),
           w: TILE_DEFAULT_W, h: TILE_DEFAULT_H, z: this.nextZ(),
-          label: folder.name || folder.path,
-          icon: 'folder', color: '#3B82F6',
-          target: { kind: 'folder', path: folder.path },
+          label: vf.basename,
+          icon: targetKind === 'board' ? 'layout-dashboard' : ext === 'md' ? 'file-text' : 'layout-grid',
+          color: '#3B82F6',
+          target: { kind: targetKind, path: vf.path },
+        };
+        this.pushUndo(); this.board.cards.push(card); await this.saveNow();
+        this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
+      } else {
+        // Any other vault file (PDF, zip, spreadsheet, …) → generic file card.
+        const newPath = await sortAssetFile(this.app, vf);
+        const isPdf = ext === 'pdf';
+        const card: FileCard = {
+          id: crypto.randomUUID(), kind: 'file',
+          x: this.applySnap(cp.x - FILE_DEFAULT_W / 2), y: this.applySnap(cp.y - FILE_DEFAULT_H / 2),
+          w: FILE_DEFAULT_W, h: isPdf ? FILE_DEFAULT_H : 150, z: this.nextZ(), path: newPath,
         };
         this.pushUndo(); this.board.cards.push(card); await this.saveNow();
         this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
       }
-    })(); });
+      return true;
+    } else if (draggable?.type === 'folder' && draggable.file instanceof TFolder) {
+      const folder = draggable.file;
+      const rect = this.outer.getBoundingClientRect();
+      const cp = screenToCanvas(e.clientX - rect.left, e.clientY - rect.top, this.vp);
+      const card: TileCard = {
+        id: crypto.randomUUID(), kind: 'tile',
+        x: this.applySnap(cp.x - TILE_DEFAULT_W / 2), y: this.applySnap(cp.y - TILE_DEFAULT_H / 2),
+        w: TILE_DEFAULT_W, h: TILE_DEFAULT_H, z: this.nextZ(),
+        label: folder.name || folder.path,
+        icon: 'folder', color: '#3B82F6',
+        target: { kind: 'folder', path: folder.path },
+      };
+      this.pushUndo(); this.board.cards.push(card); await this.saveNow();
+      this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
+      return true;
+    }
+    return false;
   },
 
   // Whether a mousedown/pointerdown with this button should start a canvas

@@ -203,6 +203,10 @@ export class FreeformRenderer extends Component {
 
   spaceDown = false;
   isPanning = false;
+  // When a real drop event last added a card. The touch-release path that
+  // catches Obsidian's own iPad sidebar drag checks this so a platform firing
+  // both a drop and a pointerup cannot add the same file twice.
+  lastNativeDropAt = 0;
   // 'hand' turns a plain left-drag anywhere — background or over a card —
   // into a pan, and stops cards selecting or dragging. Distinct from
   // pendingTool, which is a one-shot placement armed for the next click;
@@ -232,6 +236,10 @@ export class FreeformRenderer extends Component {
 
   docKeyDown!: (e: KeyboardEvent) => void;
   docKeyUp!: (e: KeyboardEvent) => void;
+  // Catches Obsidian's own touch drag from the file explorer, which fires no
+  // drop event. On the document rather than the canvas because Obsidian may
+  // hold pointer capture on the element being dragged — see bindCanvasEvents.
+  docPointerUp!: (e: PointerEvent) => void;
 
   pinchDist: number | null = null;
   pinchMidX = 0;
@@ -397,6 +405,7 @@ export class FreeformRenderer extends Component {
     this.deselectConnection();
     activeDocument.removeEventListener('keydown', this.docKeyDown);
     activeDocument.removeEventListener('keyup', this.docKeyUp);
+    activeDocument.removeEventListener('pointerup', this.docPointerUp, { capture: true });
     // A pending debounced edit must actually be written, not silently
     // dropped because the timer that would have triggered it got
     // cancelled below — this is the last chance before the board object

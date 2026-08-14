@@ -983,6 +983,87 @@ describe('UI smoke: keyboard shortcut', () => {
   });
 });
 
+// iPad: Obsidian's sidebar drag is its own, driven by touch. It sets
+// dragManager.draggable and paints a filename pill under the finger, but it is
+// not a native drag session, so no dragover/drop pair fires and the drop
+// handler never runs. Reported as dragging a file over the canvas, watching
+// its name follow the finger, and nothing happening on release.
+describe('UI smoke: catching Obsidian\'s touch drag from the sidebar', () => {
+  function withDraggable(path: string) {
+    const vault = new FakeVault();
+    const file = vault.putText(path, 'x');
+    const { renderer, board } = setup([], [], 'bottom-right', vault);
+    renderer.outer.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 1024, bottom: 768, width: 1024, height: 768, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const setDrag = (d: unknown) => {
+      (renderer.app as unknown as { dragManager: unknown }).dragManager = { draggable: d };
+    };
+    setDrag({ type: 'file', file });
+    return { renderer, board, setDrag };
+  }
+
+  // Dispatched on the document, and deliberately not on the canvas: the
+  // listener lives there because Obsidian may hold pointer capture on the
+  // element it is dragging, in which case the release never reaches .outer.
+  // Firing it somewhere else entirely is the honest simulation of that.
+  function release(_renderer: FreeformRenderer, type = 'touch', x = 300, y = 300) {
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true, clientX: x, clientY: y, pointerId: 1, pointerType: type,
+    }));
+    // The handler is async; let its microtasks settle.
+    return new Promise(r => setTimeout(r, 0));
+  }
+
+  // A note rather than an image: the image branch measures the file through a
+  // real Image element, which never loads under jsdom. Video below covers the
+  // reported case, and both prove the same release path.
+  it('adds a card when the finger lifts over the board', async () => {
+    const { renderer, board } = withDraggable('Note.md');
+    await release(renderer);
+    expect(board.cards).toHaveLength(1);
+    expect(board.cards[0].kind).toBe('tile');
+  });
+
+  it('adds a video card the same way — the case that was reported', async () => {
+    const { renderer, board } = withDraggable('clip.mp4');
+    await release(renderer);
+    expect(board.cards).toHaveLength(1);
+    expect(board.cards[0].kind).toBe('video');
+  });
+
+  it('ignores a mouse release, which gets a real drop event instead', async () => {
+    // Running both paths on desktop would add the same file twice.
+    const { renderer, board } = withDraggable('Note.md');
+    await release(renderer, 'mouse');
+    expect(board.cards).toHaveLength(0);
+  });
+
+  it('does nothing when Obsidian is not holding a drag', async () => {
+    // Every ordinary tap on the canvas ends in a pointerup; only one that
+    // lands mid-drag may add anything.
+    const { renderer, board, setDrag } = withDraggable('Note.md');
+    setDrag(undefined);
+    await release(renderer);
+    expect(board.cards).toHaveLength(0);
+  });
+
+  it('stands down just after a real drop, so nothing is added twice', async () => {
+    const { renderer, board } = withDraggable('Note.md');
+    renderer.lastNativeDropAt = Date.now();
+    await release(renderer);
+    expect(board.cards).toHaveLength(0);
+  });
+
+  it('ignores a release that lands outside this board', async () => {
+    // The listener is document-wide, so the release point is the only thing
+    // deciding which board a drag was dropped on — and whether it was dropped
+    // on one at all. Two panes open on two boards must not both act.
+    const { renderer, board } = withDraggable('Note.md');
+    await release(renderer, 'touch', 2000, 2000);
+    expect(board.cards).toHaveLength(0);
+  });
+});
+
 // iPad: nothing could be dragged out of the toolbar onto the canvas, for any
 // card type, while the same gesture worked on desktop. iOS claims a touch for
 // its own scrolling unless the element sets touch-action: none, then fires

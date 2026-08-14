@@ -147,6 +147,9 @@ export const DRAG_THRESHOLD      = 5;
 // Reported on iPad exactly that way. Sized a little wider than the strip
 // Obsidian appears to use, so the two cannot both claim a touch.
 export const EDGE_SWIPE_ZONE     = 28;
+// How long after a real drop event the touch-release fallback stands down, so
+// a platform that fires both cannot add the same dragged file twice.
+export const NATIVE_DROP_GRACE_MS = 400;
 // Arrow-key nudge distances, in canvas units. Fine is 1 so a card can be
 // placed exactly; coarse (with Shift) is a visible step rather than a
 // repeat-key marathon.
