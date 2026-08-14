@@ -634,6 +634,7 @@ path.is-marquee-selected {
   transform: translateY(-50%);
 }
 
+
 /* Right */
 .visual-notes-freeform-toolbar.tb-pos-right {
   flex-direction: column;
@@ -642,6 +643,30 @@ path.is-marquee-selected {
   right: 16px;
   top: 50%;
   transform: translateY(-50%);
+}
+
+/* On a touch device the side toolbars move clear of the screen edge, because
+   16px puts their outer edge inside the strip Obsidian watches for a sidebar
+   swipe. Dragging a Note or Text card off the toolbar therefore began a
+   gesture Obsidian sometimes claimed, and the sidebar slid open mid-drag —
+   reported on iPad, and "sometimes" because only presses on the toolbar's
+   outermost few px overlapped.
+
+   Solved by moving out of the way rather than by intercepting: the swipe
+   belongs to Obsidian, and a plugin fighting an app-level gesture recogniser
+   it cannot see is how the video controls went wrong three times.
+   EDGE_SWIPE_ZONE in freeform-view-shared.ts is the same boundary in code.
+
+   Must stay after both base rules above: a media query adds no specificity, so
+   source order is the only thing that makes these win. */
+@media (pointer: coarse) {
+  .visual-notes-freeform-toolbar.tb-pos-left {
+    left: 44px;
+  }
+
+  .visual-notes-freeform-toolbar.tb-pos-right {
+    right: 44px;
+  }
 }
 
 /* Top */
@@ -678,6 +703,21 @@ path.is-marquee-selected {
   color: var(--text-muted);
   transition: background 80ms ease, color 80ms ease, transform 100ms ease, box-shadow 100ms ease;
   flex-shrink: 0;
+  /* Without this, iOS/iPadOS claims a touch that starts here for its own
+     scroll/pan gesture the moment it moves, fires pointercancel, and stops
+     sending pointermove -- so dragging a tool out of the toolbar onto the
+     canvas could never begin on an iPad, for any card type. Reported as being
+     unable to drag anything from the toolbar onto the board, while the same
+     gesture worked on desktop, where a mouse is never taken for a scroll.
+
+     Not fixable from the drag handler instead: preventDefault() on pointerdown
+     would also work, but it suppresses the compatibility click these buttons
+     rely on for their ordinary tap-to-arm behaviour. The card drag can call it
+     precisely because a card has no click to lose.
+
+     Re-enabled for the phone bottom sheet, which scrolls -- see the
+     max-width: 540px block. */
+  touch-action: none;
 }
 
 .visual-notes-tb-btn:hover,
@@ -950,6 +990,12 @@ path.is-marquee-selected {
   }
   .visual-notes-freeform-toolbar:not(.visual-notes-ctx-active).is-open .visual-notes-add-panel .visual-notes-tb-btn {
     width: auto;
+    /* The phone panel is a scrolling bottom sheet (max-height + overflow-y
+       above) and these buttons fill it, so touch-action: none on them would
+       make it unscrollable — a worse loss than drag-to-place, which is
+       already awkward from a sheet that closes on tap. Tap-to-place is the
+       phone gesture; the iPad keeps the drag. */
+    touch-action: auto;
   }
   .visual-notes-freeform-toolbar:not(.visual-notes-ctx-active) .visual-notes-tb-overflow-sep {
     display: none;

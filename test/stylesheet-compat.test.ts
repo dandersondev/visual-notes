@@ -169,3 +169,29 @@ describe('stylesheet: bullet hanging indent survives without text-indent', () =>
     );
   });
 });
+
+// iOS/iPadOS hands a touch to its own scroll gesture unless the element opts
+// out, then fires pointercancel and stops sending pointermove. Without this
+// declaration nothing could be dragged out of the toolbar onto the canvas on
+// an iPad, for any card type, while the same gesture worked on desktop.
+// It looks like a cosmetic line and deletes cleanly, so it is pinned here.
+describe('stylesheet: the toolbar buttons opt out of the OS touch gesture', () => {
+  const rule = declarations.match(/\.visual-notes-tb-btn\s*\{[^}]*\}/)?.[0] ?? '';
+
+  it('has a .visual-notes-tb-btn rule at all', () => {
+    expect(rule).not.toBe('');
+  });
+
+  it('sets touch-action: none, or a toolbar drag cannot start on iPad', () => {
+    expect(rule).toMatch(/touch-action\s*:\s*none/);
+  });
+
+  // The phone layout turns the same panel into a scrolling bottom sheet that
+  // these buttons fill, so there the rule has to be given back or the sheet
+  // cannot be scrolled at all.
+  it('gives the gesture back to the scrolling phone bottom sheet', () => {
+    const phone = declarations.match(/@media \(max-width: 540px\)[\s\S]*$/)?.[0] ?? '';
+    const sheetBtn = phone.match(/\.is-open \.visual-notes-add-panel \.visual-notes-tb-btn\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(sheetBtn).toMatch(/touch-action\s*:\s*auto/);
+  });
+});

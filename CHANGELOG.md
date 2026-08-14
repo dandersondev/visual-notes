@@ -2,6 +2,21 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.1.31
+
+Three iPad fixes, all reported together.
+
+### Fixed
+- **Swiping in from the edge opens Obsidian's sidebar again.** On iPad the swipe did nothing except slide the canvas sideways — a one-finger pan and Obsidian's sidebar swipe are the same gesture, and the board took it every time. A touch starting within a short distance of either screen edge is now left to Obsidian. Panning is unaffected everywhere else, and nothing changes when a sidebar is already open, since the board no longer reaches the edge.
+- **Dragging a card out of the toolbar works on iPad.** Nothing could be dragged onto the canvas from the toolbar — not a note, not a sticky, not an image — while the same gesture worked on desktop. iPadOS treats a touch as its own scrolling gesture unless an element opts out, and the toolbar buttons never did, so the drag was taken away the moment your finger moved. On phones the toolbar panel scrolls, so there it keeps scrolling and cards are placed by tapping, as before.
+- **The toolbar no longer sits under Obsidian's edge-swipe strip on touch devices.** Its outer edge overlapped by a few pixels, so starting a drag from the very edge of a button sometimes slid the sidebar open mid-drag instead. The side toolbars now sit further in on touch devices.
+
+### Added
+- **Video is in the canvas right-click menu**, beside Image and Audio. It had been reachable only from the toolbar's **···** menu and the `/` palette since video cards arrived in 1.1.27. This matters most on a tablet, where the long-press menu is the usual way to add a card — and where, as it turns out, Obsidian itself does not support dragging a file out of the file explorer, so there had been no way to place a video at a chosen spot at all.
+
+### Known limitation
+- **Files cannot be dragged from Obsidian's file explorer onto a board on iPad.** Obsidian does not support that drag on iPad in any view, not only on a canvas, so there is nothing Visual Notes can do about it. On iPad, add media from the toolbar or by long-pressing the canvas.
+
 ## 1.1.30
 
 ### Fixed

@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FreeformRenderer } from '../src/freeform-view';
 import { ContextBar } from '../src/context-bar';
-import { resolveDefaultStickyColor, STICKY_COLORS, formatVideoTime } from '../src/freeform-view-shared';
+import { resolveDefaultStickyColor, STICKY_COLORS, formatVideoTime, isInEdgeSwipeZone } from '../src/freeform-view-shared';
 import { TEXT_CARD_DEFAULT_FONT, TEXT_CARD_MIN_FONT } from '../src/file-types';
 import { PenOptionsPanel, DEFAULT_PEN_DRAW_OPTIONS, type PenDrawOptions } from '../src/pen-options-panel';
 import { visualNotesToCanvas, canvasToVisualNotes } from '../src/canvas-format';
@@ -980,6 +980,116 @@ describe('UI smoke: keyboard shortcut', () => {
 
     expect(renderer.spaceDown).toBe(false);
     elsewhere.remove();
+  });
+});
+
+// iPad: nothing could be dragged out of the toolbar onto the canvas, for any
+// card type, while the same gesture worked on desktop. iOS claims a touch for
+// its own scrolling unless the element sets touch-action: none, then fires
+// pointercancel and stops sending pointermove — which the drag never handled.
+describe('UI smoke: toolbar drag-to-place survives a cancelled touch', () => {
+  function toolBtn(renderer: FreeformRenderer, label: string): HTMLElement {
+    return renderer.toolbarEl.querySelector<HTMLElement>(`.visual-notes-tb-btn[aria-label="${label}"]`)!;
+  }
+
+  // jsdom has no layout, so .outer measures 0x0 and every drop reads as
+  // outside the canvas. Give it a real-looking box.
+  function sized() {
+    const s = setup([]);
+    s.renderer.outer.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 1024, bottom: 768, width: 1024, height: 768, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    return s;
+  }
+
+  it('places a card when the drag completes over the canvas', () => {
+    const { renderer, board } = sized();
+    const btn = toolBtn(renderer, 'Sticky');
+
+    btn.dispatchEvent(pointer('pointerdown', 20, 300));
+    document.dispatchEvent(pointer('pointermove', 200, 300));
+    document.dispatchEvent(pointer('pointerup', 200, 300, { buttons: 0 }));
+
+    expect(board.cards).toHaveLength(1);
+  });
+
+  it('drops the gesture cleanly when the OS cancels it', () => {
+    const { renderer, board } = sized();
+    const btn = toolBtn(renderer, 'Sticky');
+
+    btn.dispatchEvent(pointer('pointerdown', 20, 300));
+    document.dispatchEvent(pointer('pointermove', 200, 300));
+    document.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 1 }));
+
+    // No half-finished card, and no ghost left painted on the document.
+    expect(board.cards).toHaveLength(0);
+    expect(document.querySelector('.visual-notes-toolbar-drag-ghost')).toBeNull();
+  });
+
+  it('stops listening after a cancel, so the next stray move does nothing', () => {
+    // The leak: pointerup never follows a cancel, so the old code kept both
+    // listeners alive — one pair per attempted drag, each still able to build
+    // a ghost and place a card from an unrelated later gesture.
+    const { renderer, board } = sized();
+    const btn = toolBtn(renderer, 'Sticky');
+
+    btn.dispatchEvent(pointer('pointerdown', 20, 300));
+    document.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 1 }));
+
+    document.dispatchEvent(pointer('pointermove', 300, 300));
+    document.dispatchEvent(pointer('pointerup', 300, 300, { buttons: 0 }));
+
+    expect(board.cards).toHaveLength(0);
+    expect(document.querySelector('.visual-notes-toolbar-drag-ghost')).toBeNull();
+  });
+});
+
+// iPad: swiping in from the left edge to open Obsidian's sidebar did nothing —
+// the canvas just panned instead. A one-finger pan and Obsidian's sidebar
+// swipe are the same gesture, and the board took it every time.
+describe('UI smoke: the screen-edge swipe belongs to Obsidian', () => {
+  describe('isInEdgeSwipeZone', () => {
+    it('claims neither edge strip for the board', () => {
+      expect(isInEdgeSwipeZone(0, 1024)).toBe(true);
+      expect(isInEdgeSwipeZone(27, 1024)).toBe(true);
+      expect(isInEdgeSwipeZone(1024, 1024)).toBe(true);
+      expect(isInEdgeSwipeZone(1000, 1024)).toBe(true);
+    });
+
+    it('leaves the middle alone', () => {
+      expect(isInEdgeSwipeZone(29, 1024)).toBe(false);
+      expect(isInEdgeSwipeZone(512, 1024)).toBe(false);
+      expect(isInEdgeSwipeZone(994, 1024)).toBe(false);
+    });
+  });
+
+  describe('the pan itself', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    async function swipeFrom(x: number) {
+      const { renderer } = setup([]);
+      const startX = renderer.vp.x;
+      renderer.outer.dispatchEvent(pointer('pointerdown', x, 300, { pointerType: 'touch' }));
+      await vi.advanceTimersByTimeAsync(70); // past the no-second-finger debounce
+      window.dispatchEvent(pointer('pointermove', x + 120, 300, { pointerType: 'touch' }));
+      return { renderer, startX };
+    }
+
+    it('does not pan from the left edge, so the swipe reaches Obsidian', async () => {
+      const { renderer, startX } = await swipeFrom(5);
+      expect(renderer.vp.x).toBe(startX);
+      expect(renderer.cancelActiveTouchPan).toBeNull();
+    });
+
+    it('does not pan from the right edge either — there are two sidebars', async () => {
+      const { renderer, startX } = await swipeFrom(window.innerWidth - 5);
+      expect(renderer.vp.x).toBe(startX);
+    });
+
+    it('still pans from anywhere else on the canvas', async () => {
+      const { renderer, startX } = await swipeFrom(400);
+      expect(renderer.vp.x).toBe(startX + 120);
+    });
   });
 });
 
@@ -3057,24 +3167,60 @@ describe('UI smoke: calendar month/year jump and lock', () => {
     expect(calEl(container, 'c1').querySelector('input.visual-notes-calendar-month-input')).toBeNull();
   });
 
-  it('the canvas right-click "Add" menu includes Calendar, wired to addCalendarAt', () => {
-    const { renderer } = setup([]);
+  // Looked up by title rather than by index. It used to assert on index 20,
+  // which broke the moment an item was inserted anywhere above it — and would
+  // have silently triggered a different card type instead of failing loudly if
+  // the count had happened to still line up.
+  function canvasMenuItem(renderer: FreeformRenderer, title: string) {
     let captured: InstanceType<typeof Menu> | null = null;
     vi.spyOn(Menu.prototype, 'showAtMouseEvent').mockImplementation(function (this: InstanceType<typeof Menu>) {
       captured = this;
     });
+    renderer.outer.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }));
+    return (captured!.items as unknown as { title: string; __trigger: () => void }[])
+      .find(i => i.title === title);
+  }
+
+  it('the canvas right-click "Add" menu includes Calendar, wired to addCalendarAt', () => {
+    const { renderer } = setup([]);
     const addSpy = vi.spyOn(renderer, 'addCalendarAt');
 
-    renderer.outer.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }));
-    const menu = captured!;
-    // Item order: Write(label)+5, Media & links(label)+6, Organize(label)+
-    // Tile/Kanban board/Column/Group frame/Swatch/Checkers/Calendar — Calendar
-    // is the 7th Organize entry, index 20 overall. The MenuItemStub doesn't
-    // retain title text, so this asserts the click actually reaches
-    // addCalendarAt rather than checking a label.
-    expect(menu.items.length).toBeGreaterThan(20);
-    (menu.items[20] as any).__trigger();
+    canvasMenuItem(renderer, 'Calendar')!.__trigger();
+
     expect(addSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // On a tablet this menu is how things get added: dragging a file in from
+  // Obsidian's file explorer is not something it offers on touch, and the
+  // toolbar is a longer reach. Video cards shipped in 1.1.27 with entries in
+  // the toolbar overflow and the "/" palette, but never one here — so on an
+  // iPad there was no way to place a video at a chosen spot at all.
+  it('the canvas right-click "Add" menu includes Video, wired to addVideoAt', () => {
+    const { renderer } = setup([]);
+    const addSpy = vi.spyOn(renderer, 'addVideoAt');
+
+    canvasMenuItem(renderer, 'Video')!.__trigger();
+
+    expect(addSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers Video alongside the other media, not stranded in another group', () => {
+    const { renderer } = setup([]);
+    const titles = (() => {
+      let captured: InstanceType<typeof Menu> | null = null;
+      vi.spyOn(Menu.prototype, 'showAtMouseEvent').mockImplementation(function (this: InstanceType<typeof Menu>) {
+        captured = this;
+      });
+      renderer.outer.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }));
+      return (captured!.items as unknown as { title: string }[]).map(i => i.title);
+    })();
+
+    const media = titles.indexOf('Media & links');
+    const organize = titles.indexOf('Organize');
+    const video = titles.indexOf('Video');
+
+    expect(video).toBeGreaterThan(media);
+    expect(video).toBeLessThan(organize);
   });
 
   it('Previous/Today/Next and the month label are inert while locked, and unlocking restores them', () => {

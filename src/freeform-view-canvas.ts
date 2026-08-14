@@ -48,7 +48,7 @@ import {
   CALENDAR_DEFAULT_W, CALENDAR_DEFAULT_H,
   CHECKERS_DEFAULT_W, CHECKERS_DEFAULT_H,
   DRAG_THRESHOLD, IMAGE_EXTS, CONN_COLOR_PRESETS,
-  isTypingElement, ARROW_NUDGE, NUDGE_FINE, NUDGE_COARSE,
+  isTypingElement, ARROW_NUDGE, NUDGE_FINE, NUDGE_COARSE, isInEdgeSwipeZone,
   isColumnChildKind,
   AppWithPrivateAPIs, SupportedCard, cardMinSize,
   isValidURL, openExternalUrl,
@@ -493,8 +493,18 @@ export const canvasMethods = {
         // One finger pans the canvas (two-finger pinch still zooms — see
         // the touchmove handler above); a mouse drag on empty canvas still
         // rubber-band selects, since a mouse has no competing pinch gesture.
-        if (e.pointerType === 'touch') this.maybeStartTouchPan(e);
-        else this.startMarquee(e);
+        //
+        // A touch starting at a screen edge is left alone: that is Obsidian's
+        // gesture for opening a sidebar, and panning from there took it every
+        // time — reported on iPad as "swipe from left to right to open the
+        // sidebar, nothing happens, the canvas just moves right". Declining
+        // the gesture is the only reliable way to yield it; there is nothing
+        // to cancel afterwards, because by the time a pan is recognisable the
+        // swipe has already been lost.
+        if (e.pointerType === 'touch') {
+          if (isInEdgeSwipeZone(e.clientX, activeWindow.innerWidth)) return;
+          this.maybeStartTouchPan(e);
+        } else this.startMarquee(e);
       }
     });
 
@@ -528,6 +538,14 @@ export const canvasMethods = {
         this.addImageAt(this.applySnap(cp.x - IMAGE_DEFAULT_W / 2), this.applySnap(cp.y - IMAGE_DEFAULT_H / 2))));
       menu.addItem(i => i.setTitle('Audio').setIcon('music').onClick(() =>
         this.addAudioAt(this.applySnap(cp.x - AUDIO_DEFAULT_W / 2), this.applySnap(cp.y - AUDIO_DEFAULT_H / 2))));
+      // Missing from this menu until 1.1.31, though present in the toolbar
+      // overflow and the "/" palette since video cards arrived in 1.1.27.
+      // It matters most on a tablet: long-press is the way things get added
+      // there, and dragging a video in from the file explorer is not something
+      // Obsidian offers on touch, so this menu was the only route and it did
+      // not have one.
+      menu.addItem(i => i.setTitle('Video').setIcon('file-video').onClick(() =>
+        this.addVideoAt(this.applySnap(cp.x - VIDEO_DEFAULT_W / 2), this.applySnap(cp.y - VIDEO_DEFAULT_H / 2))));
       menu.addItem(i => i.setTitle('File').setIcon('paperclip').onClick(() =>
         this.addFileAt(this.applySnap(cp.x - FILE_DEFAULT_W / 2), this.applySnap(cp.y - FILE_DEFAULT_H / 2))));
       menu.addItem(i => i.setTitle('Bookmark').setIcon('bookmark').onClick(() =>

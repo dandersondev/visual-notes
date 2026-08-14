@@ -620,10 +620,24 @@ export const overlaysMethods = {
             }
             if (ghost) { ghost.style.left = `${me.clientX}px`; ghost.style.top = `${me.clientY}px`; }
           };
-          const onUp = (ue: PointerEvent) => {
+          const detach = () => {
             activeDocument.removeEventListener('pointermove', onMove);
             activeDocument.removeEventListener('pointerup', onUp);
+            activeDocument.removeEventListener('pointercancel', onCancel);
             ghost?.remove(); ghost = null;
+          };
+          // iOS/iPadOS hands a touch to its own scroll/pan gesture rather than
+          // to the page unless the element opts out with touch-action: none
+          // (see .visual-notes-tb-btn). When it does, it fires pointercancel
+          // and stops sending pointermove -- so before that CSS existed, no
+          // drag from this toolbar could ever start on an iPad, reported as
+          // being unable to drag anything onto the canvas at all. The listeners
+          // were never removed either, since pointerup does not follow a
+          // cancel: one leaked pair per attempted drag, each still building a
+          // ghost on the next stray pointermove.
+          const onCancel = () => { dragging = false; detach(); };
+          const onUp = (ue: PointerEvent) => {
+            detach();
             if (!dragging) return;
             const r = this.outer.getBoundingClientRect();
             if (ue.clientX < r.left || ue.clientX > r.right || ue.clientY < r.top || ue.clientY > r.bottom) return;
@@ -635,6 +649,7 @@ export const overlaysMethods = {
           };
           activeDocument.addEventListener('pointermove', onMove);
           activeDocument.addEventListener('pointerup', onUp);
+          activeDocument.addEventListener('pointercancel', onCancel);
         });
       }
 

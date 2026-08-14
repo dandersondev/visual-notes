@@ -140,6 +140,13 @@ export const CHECKERS_MIN_H      = 260;
 export const DOT_SPACING         = 32;
 export const MAX_UNDO            = 20;
 export const DRAG_THRESHOLD      = 5;
+// How far in from a screen edge belongs to the app rather than to the board.
+// Obsidian opens its sidebars from an edge swipe on touch devices, and a
+// one-finger pan starting in that strip competes for the same gesture -- the
+// board wins, so the swipe pans the canvas and the sidebar never opens.
+// Reported on iPad exactly that way. Sized a little wider than the strip
+// Obsidian appears to use, so the two cannot both claim a touch.
+export const EDGE_SWIPE_ZONE     = 28;
 // Arrow-key nudge distances, in canvas units. Fine is 1 so a card can be
 // placed exactly; coarse (with Shift) is a visible step rather than a
 // repeat-key marathon.
@@ -153,6 +160,18 @@ export const ARROW_NUDGE: { [key: string]: { dx: number; dy: number } | undefine
 };
 
 export const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'avif', 'ico'];
+
+/**
+ * Whether a touch starting at `clientX` belongs to Obsidian's edge-swipe
+ * rather than to the board. Measured against the window, not the canvas, so
+ * it is only ever true when the board actually reaches the screen edge -- with
+ * a sidebar already open the canvas starts further in and nothing is given up.
+ *
+ * Both edges: Obsidian has a right sidebar as well as a left one.
+ */
+export function isInEdgeSwipeZone(clientX: number, viewportWidth: number): boolean {
+  return clientX <= EDGE_SWIPE_ZONE || clientX >= viewportWidth - EDGE_SWIPE_ZONE;
+}
 
 /**
  * Whether text is being typed into `el`, so a bare-letter shortcut must not
