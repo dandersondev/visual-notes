@@ -2,6 +2,13 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.1.34
+
+### Fixed
+- **Dragging a card off the toolbar no longer opens Obsidian's sidebar.** On iPad the sidebar slid open mid-drag, because dragging left-to-right off a left-hand toolbar is the same gesture Obsidian uses to open one. Touches that begin on the toolbar now stay there. Swiping in from the edge of the screen still opens the sidebar exactly as before — that is where the gesture is meant to be made, and the canvas already leaves that strip alone.
+
+  1.1.31 fixed the other half of this, where the drag could not start at all; this is the part that remained.
+
 ## 1.1.33
 
 Contains everything in 1.1.32, which failed to build and was never released.

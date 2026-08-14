@@ -1080,6 +1080,47 @@ describe('UI smoke: catching Obsidian\'s touch drag from the sidebar', () => {
   });
 });
 
+// iPad: dragging a card off the toolbar also slid Obsidian's sidebar open,
+// because a drag off a left-hand toolbar is the same shape as the horizontal
+// swipe Obsidian opens a sidebar on. touch-action: none fixed the browser half
+// (the drag now works) but cannot touch Obsidian's own recogniser, which is
+// script listening for touch events. Keeping those events from travelling past
+// the toolbar is what stops it.
+describe('UI smoke: the toolbar keeps its touches to itself', () => {
+  function touchOnToolbar(renderer: FreeformRenderer, type: string) {
+    const seenAbove = vi.fn();
+    // Stands in for wherever Obsidian's gesture recogniser listens: an
+    // ancestor of the toolbar, in the bubble phase.
+    renderer.container.addEventListener(type, seenAbove);
+    const btn = renderer.toolbarEl.querySelector<HTMLElement>('.visual-notes-tb-btn')!;
+    const ev = new Event(type, { bubbles: true, cancelable: true });
+    btn.dispatchEvent(ev);
+    renderer.container.removeEventListener(type, seenAbove);
+    return { seenAbove, ev };
+  }
+
+  it('does not let a touch on a tool button reach anything above it', () => {
+    const { renderer } = setup([]);
+    expect(touchOnToolbar(renderer, 'touchstart').seenAbove).not.toHaveBeenCalled();
+    expect(touchOnToolbar(renderer, 'touchmove').seenAbove).not.toHaveBeenCalled();
+  });
+
+  it('marks a move handled, for a recogniser reading events we cannot intercept', () => {
+    // A listener at document level in the capture phase runs before this and
+    // is beyond stopPropagation's reach; defaultPrevented is the only signal
+    // left to give it.
+    const { renderer } = setup([]);
+    expect(touchOnToolbar(renderer, 'touchmove').ev.defaultPrevented).toBe(true);
+  });
+
+  it('leaves the start of a touch un-prevented, so tap-to-arm still works', () => {
+    // preventDefault on touchstart would suppress the compatibility click
+    // these buttons use when tapped rather than dragged.
+    const { renderer } = setup([]);
+    expect(touchOnToolbar(renderer, 'touchstart').ev.defaultPrevented).toBe(false);
+  });
+});
+
 // iPad: nothing could be dragged out of the toolbar onto the canvas, for any
 // card type, while the same gesture worked on desktop. iOS claims a touch for
 // its own scrolling unless the element sets touch-action: none, then fires

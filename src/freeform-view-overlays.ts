@@ -586,6 +586,42 @@ export const overlaysMethods = {
     const tb = this.toolbarEl = this.container.createDiv('visual-notes-freeform-toolbar');
     tb.addClass(`tb-pos-${this.toolbarPosition}`);
 
+    // Obsidian opens a sidebar on a horizontal swipe, and dragging a card off
+    // this toolbar is exactly that shape -- so on iPad the sidebar slid open
+    // mid-drag. Two separate things had to be stopped, which is why it took
+    // two goes:
+    //
+    //   - The *browser* treating the touch as a scroll, which cancelled the
+    //     drag outright. That is touch-action: none on .visual-notes-tb-btn,
+    //     and it worked: the drag now places its card.
+    //   - *Obsidian's own* recogniser, which is JavaScript listening for touch
+    //     events. touch-action cannot influence that at all -- it governs the
+    //     browser's gestures, not another script's. The events have to stop
+    //     reaching it instead.
+    //
+    // Hence this: touches that begin on the toolbar do not travel any further
+    // up the tree. The swipe still belongs to Obsidian everywhere else,
+    // including the screen edge, which is where the gesture is meant to be
+    // made -- the canvas gives that strip up for the same reason, see
+    // isInEdgeSwipeZone.
+    //
+    // preventDefault on touchmove as well as stopPropagation, because a
+    // recogniser reading document-level events in the capture phase is past
+    // stopPropagation's reach, and checking defaultPrevented is the usual
+    // courtesy. touchstart is deliberately NOT prevented: that would suppress
+    // the compatibility click these buttons need for tap-to-arm.
+    //
+    // Skipped on phones, where this panel is a scrolling bottom sheet that
+    // needs its own touch events -- the same exemption the touch-action rule
+    // makes in the max-width: 540px block.
+    if (!Platform.isPhone) {
+      tb.addEventListener('touchstart', (e) => { e.stopPropagation(); }, { capture: true, passive: true });
+      tb.addEventListener('touchmove', (e) => {
+        e.stopPropagation();
+        if (e.cancelable) e.preventDefault();
+      }, { capture: true, passive: false });
+    }
+
     // ── Add panel (slot layer shown when no card is selected) ──
     const addPanel = tb.createDiv('visual-notes-add-panel');
 
