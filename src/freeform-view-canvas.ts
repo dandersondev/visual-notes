@@ -741,7 +741,19 @@ export const canvasMethods = {
       if (!draggable) return;
       const r = this.outer.getBoundingClientRect();
       if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
-      await this.dropVaultDraggableAt(draggable, e.clientX, e.clientY);
+      // Building the card touches the vault -- sortAssetFile moves the file
+      // into _Assets, and that can fail for ordinary reasons: the file was
+      // renamed or deleted while the drag was in flight, a name already taken,
+      // permissions. Unlike the drop handler this runs from a listener that
+      // fires on *every* touch release, so an uncaught rejection here is not a
+      // one-off: it repeats for the rest of the session. Reported as a failed
+      // release rather than thrown into the void.
+      try {
+        await this.dropVaultDraggableAt(draggable, e.clientX, e.clientY);
+      } catch (err) {
+        console.error('Visual Notes: failed to add the dragged file', err);
+        new Notice(`Visual Notes: couldn't add that file to the board — ${err instanceof Error ? err.message : String(err)}`);
+      }
     })(); };
     activeDocument.addEventListener('pointerup', this.docPointerUp, { capture: true });
   },

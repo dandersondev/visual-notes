@@ -54,8 +54,24 @@ function setup(
     32, undefined, mobileFabPosition,
   );
   renderer.render();
+  live.push(renderer);
   return { renderer, board, container };
 }
+
+// Every renderer registers listeners on the *document* — keydown, keyup, and
+// (since the iPad sidebar-drag catch) pointerup. Nothing here used to tear
+// them down, so each setup() left another live handler attached for the rest
+// of the file. That stayed invisible while the listeners were only keyboard
+// ones, but a document-wide pointerup fires every leaked handler at once:
+// stale renderers acted on a drag left set on their own app, tried to move a
+// file their vault had already moved, and threw. Five unhandled rejections in
+// CI, from tests that themselves passed.
+const live: FreeformRenderer[] = [];
+afterEach(async () => {
+  for (const r of live.splice(0)) {
+    try { await r.destroy(); } catch { /* a test may have torn it down already */ }
+  }
+});
 
 function pointer(type: string, x: number, y: number, extra: Partial<PointerEventInit> = {}): PointerEvent {
   // buttons: 1 (primary button held) on every event by default — matches a

@@ -2,6 +2,13 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.1.33
+
+Contains everything in 1.1.32, which failed to build and was never released.
+
+### Fixed
+- **A file that can't be added to a board now says so.** Dropping or dragging a file in moves it into your `_Assets` folder first, and that can fail for ordinary reasons — the file was renamed or deleted mid-drag, the name is already taken, permissions. On the touch path that failure was silent. It now reports what went wrong, instead of the card simply never appearing.
+
 ## 1.1.32
 
 ### Added
