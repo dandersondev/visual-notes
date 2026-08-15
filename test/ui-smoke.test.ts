@@ -1653,6 +1653,103 @@ describe('UI smoke: touch action sheet replaces desktop Menu on phone (mobile UX
   });
 });
 
+// iPad: dragging a storyboard "jumps to random locations". Pointer capture is
+// per-pointerId, so a second touch landing on the same card still fires
+// pointermove on it — and the drag applied it, moving the card to that
+// finger's position measured from the first finger's start. Storyboards get it
+// worst by being much the largest card kind: a second finger lands on one
+// easily, and pinch-zooming a full-screen storyboard is the obvious gesture.
+describe('UI smoke: a second finger cannot hijack a card drag', () => {
+  // Card moves are batched into a requestAnimationFrame, and onUp overwrites
+  // the pending coordinates with the release position — so a test that ended
+  // with a pointerup would always read the *correct* answer and never see the
+  // hijack. Running the frame synchronously lets each move be observed where
+  // it happens.
+  let realRaf: typeof window.requestAnimationFrame;
+  beforeEach(() => {
+    realRaf = window.requestAnimationFrame;
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) => { cb(0); return 0; }) as typeof window.requestAnimationFrame;
+  });
+  afterEach(() => { window.requestAnimationFrame = realRaf; });
+
+  // applySnap is never a no-op: with snap-to-grid off it still rounds to a 4px
+  // fine grid, so every delta below is a multiple of 4 and the expected
+  // positions are exact rather than approximately right.
+  function dragging() {
+    const sticky: StickyCard = { id: 's1', kind: 'sticky', x: 100, y: 100, w: 240, h: 160, text: 'hi', color: '#fff' };
+    const s = setup([sticky]);
+    const el = s.renderer.cardEls.get('s1')!;
+    el.setPointerCapture = () => {};
+    el.releasePointerCapture = () => {};
+    // Finger 1 presses and drags past the threshold: +40, +32.
+    el.dispatchEvent(pointer('pointerdown', 200, 200, { pointerType: 'touch', pointerId: 1 }));
+    el.dispatchEvent(pointer('pointermove', 240, 232, { pointerType: 'touch', pointerId: 1 }));
+    return { ...s, el };
+  }
+
+  it('moves with the finger that started the drag', () => {
+    const { board } = dragging();
+    expect(board.cards[0].x).toBe(140);
+    expect(board.cards[0].y).toBe(132);
+  });
+
+  it('ignores moves from any other finger', () => {
+    // The reported bug: without the pointerId filter this lands the card at
+    // the second finger's offset from the first finger's start — far away,
+    // and in a direction nothing was dragged in.
+    const { board, el } = dragging();
+
+    el.dispatchEvent(pointer('pointermove', 900, 700, { pointerType: 'touch', pointerId: 2 }));
+
+    expect(board.cards[0].x).toBe(140);
+    expect(board.cards[0].y).toBe(132);
+  });
+
+  it('does not end the drag when a second finger lifts', () => {
+    const { board, el } = dragging();
+
+    el.dispatchEvent(pointer('pointerup', 900, 700, { pointerType: 'touch', pointerId: 2, buttons: 0 }));
+    el.dispatchEvent(pointer('pointermove', 264, 264, { pointerType: 'touch', pointerId: 1 }));
+
+    expect(board.cards[0].x).toBe(164);
+    expect(board.cards[0].y).toBe(164);
+  });
+
+  // Dispatched as a real touchstart rather than by calling the canceller
+  // directly: calling it proves the function works, not that anything invokes
+  // it. jsdom has no Touch constructor, so the two fingers are faked onto a
+  // plain event — all the handler reads is touches.length.
+  function secondFingerLands(renderer: FreeformRenderer) {
+    const ev = new Event('touchstart', { bubbles: true });
+    Object.defineProperty(ev, 'touches', { value: [{}, {}] });
+    renderer.outer.dispatchEvent(ev);
+  }
+
+  it('stands down entirely once a second finger lands, so a pinch can zoom', () => {
+    // The marquee and one-finger pan have always done this; the card drag did
+    // not, leaving a live drag fighting the pinch-zoom transform.
+    const { renderer, board, el } = dragging();
+
+    secondFingerLands(renderer);
+    el.dispatchEvent(pointer('pointermove', 500, 500, { pointerType: 'touch', pointerId: 1 }));
+
+    expect(renderer.cancelActiveCardDrag).toBeNull();
+    expect(board.cards[0].x).toBe(140);
+    expect(board.cards[0].y).toBe(132);
+  });
+
+  it('does not bin the card when the drag is cancelled', () => {
+    // The cancel path synthesises a pointercancel, which carries no
+    // coordinates — so judging the drop by them put the card at (0, 0), and
+    // whatever sits at the origin would have swallowed it.
+    const { renderer, board } = dragging();
+
+    secondFingerLands(renderer);
+
+    expect(board.cards).toHaveLength(1);
+  });
+});
+
 describe('UI smoke: one-finger touch pan (canvas navigation)', () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });

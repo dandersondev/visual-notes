@@ -271,7 +271,10 @@ export const canvasMethods = {
       // A second finger landing mid-drag means what looked like a one-
       // finger marquee gesture just became a pinch — abort the marquee so
       // it doesn't stick around fighting with the pinch-zoom transform.
-      if (this.activeTouches >= 2) { this.cancelActiveMarquee?.(); this.cancelActiveTouchPan?.(); this.cancelLongPress(); }
+      if (this.activeTouches >= 2) {
+        this.cancelActiveMarquee?.(); this.cancelActiveTouchPan?.();
+        this.cancelActiveCardDrag?.(); this.cancelLongPress();
+      }
     }, { passive: true });
 
     // On-screen-keyboard tracking: when iOS's keyboard opens it shrinks
@@ -1353,6 +1356,16 @@ export const canvasMethods = {
       };
 
       const onMove = (e: PointerEvent) => {
+        // Only the finger that started this drag may move it. Pointer capture
+        // is per-pointerId, so a *second* touch landing on the same card still
+        // fires pointermove here — and without this the card was moved to
+        // that finger's position measured from the first finger's start,
+        // which reads as the card teleporting. Reported on iPad against
+        // storyboards, which get it worst by being the largest card kind by
+        // some way: a second finger lands on one far more easily, and a
+        // pinch-zoom over a full-screen storyboard is the natural gesture.
+        // startTouchPan has always filtered this way; the card drag did not.
+        if (e.pointerId !== captureId) return;
         // Defensive: with capture already held (see above), a genuine
         // release always arrives as pointerup/pointercancel — but if the
         // button is somehow already up by the time a move event lands
@@ -1386,7 +1399,16 @@ export const canvasMethods = {
           moveFrameId = window.requestAnimationFrame(flushMoveFrame);
         }
       };
-      const onUp = (ue: PointerEvent) => {
+      // `cancelled` marks the drag as abandoned rather than released — see
+      // cancelActiveCardDrag. It must never be inferred from the event: the
+      // synthetic one carries no coordinates, and a drop is decided by where
+      // the pointer was.
+      const onUp = (ue: PointerEvent, cancelled = false) => {
+        // Same reason as onMove: a second finger lifting off the card is not
+        // this drag ending. Skipped when cancelActiveCardDrag calls in, which
+        // has no event of its own and passes the drag's own id deliberately.
+        if (ue.pointerId !== captureId) return;
+        this.cancelActiveCardDrag = null;
         el.removeEventListener('pointermove', onMove);
         el.removeEventListener('pointerup', onUp);
         el.removeEventListener('pointercancel', onUp);
@@ -1396,12 +1418,15 @@ export const canvasMethods = {
         if (moveFramePending) { window.cancelAnimationFrame(moveFrameId); latestX = ue.clientX; latestY = ue.clientY; flushMoveFrame(); }
         if (hoveredCardId) this.cardEls.get(hoveredCardId)?.removeClass('is-kanban-drop-target');
         this.clearTrashHover();
-        const trashing = dragMoved && this.isOverTrash(ue.clientX, ue.clientY);
+        // A cancelled drag drops nowhere. Without this it would be judged
+        // against the synthetic event's coordinates, which are (0, 0) — and
+        // whatever sits at the origin would silently swallow the card.
+        const trashing = !cancelled && dragMoved && this.isOverTrash(ue.clientX, ue.clientY);
         // No settle animation when the card is about to be absorbed into a
         // kanban/column container or dropped on the trash — its element gets
         // removed immediately, so animating it would just flash. Settle only
         // on a normal canvas drop.
-        const absorbing = !!(dragMoved && hoveredCardId) || trashing;
+        const absorbing = !cancelled && (!!(dragMoved && hoveredCardId) || trashing);
         endLift(dragMoved && !absorbing);
         // Pressed the video overlay and let go without dragging — that's the
         // "Click to play or pause" the overlay's tooltip promises.
@@ -1492,6 +1517,14 @@ export const canvasMethods = {
       el.addEventListener('pointermove', onMove);
       el.addEventListener('pointerup', onUp);
       el.addEventListener('pointercancel', onUp);
+      // A second finger means this stopped being a drag and became a pinch.
+      // The marquee and the one-finger pan have always stood down for that
+      // (see the touchstart handler); the card drag never did, so a pinch
+      // begun on a card left a live drag fighting the zoom transform.
+      // Synthesised with this drag's own pointerId so onUp's filter admits it.
+      this.cancelActiveCardDrag = () => {
+        onUp(new PointerEvent('pointercancel', { pointerId: captureId }), true);
+      };
       if (onVideo) {
         // Standing in for the capture that wasn't taken. Without it, a press
         // released anywhere but over this card never reaches `el`, leaving

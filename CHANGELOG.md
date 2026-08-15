@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.2.3
+
+### Fixed
+- **Cards no longer jump across the board when a second finger touches them.** Dragging a card on a touch screen and then resting or landing another finger anywhere on it threw the card to a distant, apparently random position. Only the finger that began a drag now moves it, and a second finger lifting no longer ends the drag early. Reported on iPad against Storyboards, which suffer most simply by being the largest cards — a stray finger lands on one far more easily.
+- **Pinch-zooming while touching a card now zooms.** A second finger already stood the box-select and one-finger pan down; a card drag kept running and fought the zoom. It now steps aside like the others, leaving the card where you had dragged it to.
+
 ## 1.2.2
 
 ### Fixed

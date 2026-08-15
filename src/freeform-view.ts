@@ -254,6 +254,9 @@ export class FreeformRenderer extends Component {
   activeTouches = 0;
   cancelActiveMarquee: (() => void) | null = null;
   cancelActiveTouchPan: (() => void) | null = null;
+  // Ends a card drag that a second finger has turned into a pinch. Set while
+  // a drag is live, cleared by its own teardown — see bindDelegatedCardEvents.
+  cancelActiveCardDrag: (() => void) | null = null;
 
   // Manual long-press-to-contextmenu detection. Every card/item's own
   // pointerdown handler calls preventDefault() (needed to stop iOS from
