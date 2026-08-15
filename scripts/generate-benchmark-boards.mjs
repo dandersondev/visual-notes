@@ -111,6 +111,44 @@ function generateBoard(n) {
   };
 }
 
+// A focused Storyboard fixture for measuring the feature's real hot path:
+// one nested node, forty shots, 120 pressure-sensitive strokes and enough
+// normalized samples to exercise serialization, parsing and brush rendering.
+function generateStoryboardBoard() {
+  const sections = Array.from({ length: 4 }, (_, sectionIndex) => ({
+    id: `story-section-${sectionIndex + 1}`,
+    title: `Scene section ${sectionIndex + 1}`,
+    shots: Array.from({ length: 10 }, (_, shotIndex) => {
+      const absoluteIndex = sectionIndex * 10 + shotIndex;
+      const drawings = Array.from({ length: 3 }, (_, strokeIndex) => ({
+        id: `story-stroke-${absoluteIndex}-${strokeIndex}`,
+        brush: ['pen', 'marker', 'pencil'][strokeIndex],
+        color: ['#ef4444', '#2563eb', '#1f2937'][strokeIndex],
+        width: [5, 12, 4][strokeIndex], opacity: [1, .82, .68][strokeIndex],
+        smoothing: [.55, .7, .38][strokeIndex], pressureEnabled: true, simulatePressure: false,
+        points: Array.from({ length: 100 }, (_, pointIndex) => ({
+          x: Math.round((.04 + pointIndex / 109) * 10_000) / 10_000,
+          y: Math.round((.2 + strokeIndex * .25 + Math.sin((pointIndex + absoluteIndex) / 8) * .08) * 10_000) / 10_000,
+          p: Math.round((.2 + ((pointIndex + strokeIndex * 17) % 80) / 100) * 10_000) / 10_000,
+        })),
+      }));
+      return {
+        id: `story-shot-${absoluteIndex + 1}`, shot: `${sectionIndex + 1}.${shotIndex + 1}`,
+        title: `Benchmark shot ${absoluteIndex + 1}`, duration: 3, aspectRatio: absoluteIndex % 7 === 0 ? '4:3' : '16:9',
+        notes: 'A representative shot description used to measure preview captions and native Markdown projection.',
+        background: { type: 'vault', path: `Benchmark Assets/frame-${String(absoluteIndex + 1).padStart(2, '0')}.jpg` },
+        objects: [{ id: `story-label-${absoluteIndex}`, kind: 'text', x: .08, y: .08, text: `SHOT ${absoluteIndex + 1}`, color: '#ffffff', size: 24 }],
+        drawings, status: 'draft',
+      };
+    }),
+  }));
+  return {
+    version: 3, layout: 'freeform',
+    cards: [{ id: 'storyboard-40', kind: 'storyboard', title: '40-shot performance storyboard', view: 'grid', previewSize: 'md', x: 0, y: 0, w: 900, h: 620, z: 1, sections }],
+    connections: [], drawings: [], viewport: { x: 0, y: 0, zoom: 1 },
+  };
+}
+
 const { visualNotesToCanvas } = await loadVisualNotesToCanvas();
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
@@ -121,6 +159,10 @@ for (const n of SIZES) {
   fs.writeFileSync(outPath, JSON.stringify(data, null, 2), 'utf8');
   console.log(`wrote ${outPath} — ${board.cards.length} cards, ${board.connections.length} connections`);
 }
+const storyboard = generateStoryboardBoard();
+const storyboardPath = path.join(OUT_DIR, 'Storyboard 40.canvas');
+fs.writeFileSync(storyboardPath, JSON.stringify(visualNotesToCanvas(storyboard), null, 2), 'utf8');
+console.log(`wrote ${storyboardPath} — 40 shots, 120 strokes, 12000 ink samples`);
 console.log('\nCopy the .canvas file(s) you want into your vault and open them in Visual Notes.');
 console.log('Obsidian is Electron/Chromium — Ctrl+Shift+I opens real DevTools; use the Performance');
 console.log('tab while opening/zooming/dragging/searching/toggling the minimap to get real numbers.');

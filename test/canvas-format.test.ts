@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { visualNotesToCanvas, canvasToVisualNotes, isVisualNotesCanvas, type CanvasData } from '../src/canvas-format';
 import type {
-  VisualNotesFile, TileCard, StickyCard, ChecklistCard, KanbanBoardCard, GroupCard, Connection,
+  VisualNotesFile, TileCard, StickyCard, ChecklistCard, KanbanBoardCard, GroupCard, Connection, StoryboardCard,
 } from '../src/file-types';
 
 function board(cards: VisualNotesFile['cards'], connections: Connection[] = []): VisualNotesFile {
@@ -9,6 +9,27 @@ function board(cards: VisualNotesFile['cards'], connections: Connection[] = []):
 }
 
 describe('canvas-format round trips', () => {
+  it('round-trips a storyboard as one node with nested sections, shots, ink, and objects', () => {
+    const storyboard: StoryboardCard = {
+      id: 'sb1', kind: 'storyboard', title: 'Opening', view: 'filmstrip', previewSize: 'lg', x: 10, y: 20, w: 640, h: 380,
+      sections: [{ id: 'section1', title: 'Arrival', shots: [{
+        id: 'panel1', shot: '1.1', title: 'Wide', duration: 4, aspectRatio: '16:9', notes: 'Hold on the door',
+        background: { type: 'vault', path: 'Assets/door.png' },
+        drawings: [{ id: 'stroke1', color: '#ef4444', width: 5, brush: 'marker', opacity: .8, smoothing: .65, pressureEnabled: true, simulatePressure: false, points: [{ x: .1, y: .2, p: .2 }, { x: .5, y: .7, p: .9 }] }],
+        objects: [
+          { id: 'text1', kind: 'text', x: .2, y: .3, text: 'ENTER', size: 24 },
+          { id: 'arrow1', kind: 'arrow', x: .1, y: .8, x2: .8, y2: .3, bend: .18, color: '#2563eb', width: 6 },
+        ],
+      }] }],
+    };
+    const canvas = visualNotesToCanvas(board([storyboard]));
+    expect(canvas.nodes).toHaveLength(1);
+    expect(canvas.nodes[0].type).toBe('text');
+    expect((canvas.nodes[0] as { text: string }).text).toContain('1.1 — Wide — 4s');
+    const out = canvasToVisualNotes(canvas);
+    expect(out.cards[0]).toEqual(storyboard);
+  });
+
   it('preserves id, kind, and content fields across every basic card kind', () => {
     const tile: TileCard = {
       id: 't1', kind: 'tile', x: 10, y: 20, w: 200, h: 120,

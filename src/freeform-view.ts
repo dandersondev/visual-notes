@@ -32,6 +32,7 @@ import { cardsColumnMethods } from './freeform-view-cards-column';
 import { cardsMediaMethods } from './freeform-view-cards-media';
 import { cardsCalendarMethods } from './freeform-view-cards-calendar';
 import { cardsCheckersMethods } from './freeform-view-cards-checkers';
+import { cardsStoryboardMethods } from './freeform-view-cards-storyboard';
 import { overlaysMethods } from './freeform-view-overlays';
 import { persistenceMethods } from './freeform-view-persistence';
 import { clipboardMethods } from './freeform-view-clipboard';
@@ -532,6 +533,7 @@ export class FreeformRenderer extends Component {
       case 'group': this.renderGroupContent(el, card); break;
       case 'calendar': this.renderCalendarContent(el, card); break;
       case 'checkers': this.renderCheckersContent(el, card); break;
+      case 'storyboard': this.renderStoryboardContent(el, card); break;
     }
     el.toggleClass('is-selected', this.selection.has(card.id));
     this.addConnectionHandles(el, card);
@@ -1333,4 +1335,4 @@ export class FreeformRenderer extends Component {
 
 }
 
-Object.assign(FreeformRenderer.prototype, canvasMethods, cardsBasicMethods, cardsTableMethods, cardsKanbanMethods, cardsColumnMethods, cardsMediaMethods, cardsCalendarMethods, cardsCheckersMethods, overlaysMethods, persistenceMethods, clipboardMethods);
+Object.assign(FreeformRenderer.prototype, canvasMethods, cardsBasicMethods, cardsTableMethods, cardsKanbanMethods, cardsColumnMethods, cardsMediaMethods, cardsCalendarMethods, cardsCheckersMethods, cardsStoryboardMethods, overlaysMethods, persistenceMethods, clipboardMethods);

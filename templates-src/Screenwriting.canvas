@@ -9,6 +9,36 @@
       "vn": { "kind": "callout", "id": "sc-callout", "text": "Screenplay HQ — pitch it in one line, break the story into acts and beats, storyboard the key scene panel by panel, and track every scene to a locked draft.", "icon": "🎬", "color": "#8B5CF6" }
     },
     {
+      "id": "sc-storyboard-tool",
+      "x": 1020, "y": 260, "width": 640, "height": 380,
+      "type": "text",
+      "text": "## Storyboard scene: Rooftop confrontation\n\n- 12.1 — Establishing wide — 4s\n- 12.2 — Rae enters — 3s\n- 12.3 — The evidence — 2s\n- 12.4 — Marcus reacts — 3s",
+      "vn": {
+        "kind": "storyboard", "id": "sc-storyboard-tool", "title": "Rooftop confrontation", "view": "filmstrip",
+        "sections": [{
+          "id": "sc-sb-section", "title": "Overall scene",
+          "shots": [
+            {
+              "id": "sc-sb-shot-1", "shot": "12.1", "title": "Establishing wide", "duration": 4, "aspectRatio": "16:9", "status": "draft",
+              "objects": [{ "id": "sc-sb-text-1", "kind": "text", "x": 0.06, "y": 0.08, "text": "CITY — NIGHT", "color": "#ffffff", "size": 28 }], "drawings": []
+            },
+            {
+              "id": "sc-sb-shot-2", "shot": "12.2", "title": "Rae enters", "duration": 3, "aspectRatio": "16:9", "status": "idea",
+              "objects": [{ "id": "sc-sb-arrow-2", "kind": "arrow", "x": 0.18, "y": 0.72, "x2": 0.72, "y2": 0.42, "color": "#ef4444", "width": 5 }], "drawings": []
+            },
+            {
+              "id": "sc-sb-shot-3", "shot": "12.3", "title": "The evidence", "duration": 2, "aspectRatio": "4:3", "status": "idea", "notes": "Insert: the photograph catches the practical light.",
+              "objects": [], "drawings": [{ "id": "sc-sb-ink-3", "color": "#f59e0b", "width": 5, "points": [{ "x": 0.25, "y": 0.3 }, { "x": 0.75, "y": 0.3 }, { "x": 0.75, "y": 0.7 }, { "x": 0.25, "y": 0.7 }, { "x": 0.25, "y": 0.3 }] }]
+            },
+            {
+              "id": "sc-sb-shot-4", "shot": "12.4", "title": "Marcus reacts", "duration": 3, "aspectRatio": "16:9", "status": "idea",
+              "objects": [{ "id": "sc-sb-text-4", "kind": "text", "x": 0.58, "y": 0.18, "text": "Hold the silence", "color": "#ffffff", "size": 22 }], "drawings": []
+            }
+          ]
+        }]
+      }
+    },
+    {
       "id": "sc-grp-core",
       "x": -560, "y": -440, "width": 400, "height": 300,
       "type": "group",

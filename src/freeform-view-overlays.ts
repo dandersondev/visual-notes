@@ -35,7 +35,7 @@ import {
   CalloutIconPickerModal, QuickAddEntry,
   QuickAddModal,
   KanbanItemColorModal, WipLimitModal, BookmarkInputModal,
-  openExternalUrl,
+  openExternalUrl, inlineRemoteImages, EXPORT_IMAGE_TOLERANCE,
 } from './freeform-view-shared';
 import type { FreeformRenderer } from './freeform-view';
 
@@ -121,6 +121,14 @@ export const overlaysMethods = {
   },
 
   populateCardMenu(this: FreeformRenderer, menu: Menu, el: HTMLElement, card: SupportedCard): void {
+    if (card.kind === 'storyboard') {
+      menu.addItem(i => i.setTitle('Open storyboard editor').setIcon('maximize-2').onClick(() => this.openStoryboardEditor(card)));
+      menu.addItem(i => i.setTitle(card.view === 'grid' ? 'Use filmstrip preview' : 'Use grid preview').setIcon('gallery-horizontal-end').onClick(() => {
+        this.pushUndo(); card.view = card.view === 'grid' ? 'filmstrip' : 'grid'; this.renderCardContent(el, card); this.scheduleSave();
+      }));
+      menu.addSeparator();
+    }
+
     if (card.kind === 'tile') {
       menu.addItem(i => i.setTitle('Edit').setIcon('pencil').onClick(() => {
         new TileModal(this.app, card, (updated) => {
@@ -843,6 +851,7 @@ export const overlaysMethods = {
     mkOv('Group',     'frame',     'group');
     mkOv('Calendar',  'calendar-days',  'calendar');
     mkOv('Checkers',  'crown',          'checkers');
+    mkOv('Storyboard','clapperboard',    'storyboard');
     pop.createDiv('visual-notes-tb-overflow-divider');
     mkItem('Save as template…', 'save', () => promptSaveBoardAsTemplate(this.app, this.file));
 
@@ -1117,14 +1126,25 @@ export const overlaysMethods = {
       const width = Math.round(rawW), height = Math.round(rawH);
       const bg = getComputedStyle(this.outer).backgroundColor || '#e6e6e6';
 
-      const dataUrl = await toPng(this.inner, {
-        width, height, pixelRatio, backgroundColor: bg,
-        style: {
-          transform: `translate(${PAD - bbox.minX}px, ${PAD - bbox.minY}px)`,
-          transformOrigin: '0 0',
-        },
-        filter: exportNodeFilter,
-      });
+      // Remote pictures have to be resolved before the rasteriser sees them,
+      // or a single unreachable one rejects the whole export — see
+      // inlineRemoteImages for the mechanism. Restored in the finally below,
+      // because this mutates the live board.
+      const restoreImages = await inlineRemoteImages(this.inner);
+      let dataUrl: string;
+      try {
+        dataUrl = await toPng(this.inner, {
+          width, height, pixelRatio, backgroundColor: bg,
+          style: {
+            transform: `translate(${PAD - bbox.minX}px, ${PAD - bbox.minY}px)`,
+            transformOrigin: '0 0',
+          },
+          filter: exportNodeFilter,
+          ...EXPORT_IMAGE_TOLERANCE,
+        });
+      } finally {
+        restoreImages();
+      }
 
       const base = this.file.basename || 'Board';
       if (format === 'png') {
@@ -1291,6 +1311,10 @@ export const overlaysMethods = {
       case 'group': parts.push(card.label ?? ''); break;
       case 'calendar': parts.push(card.title ?? ''); break;
       case 'checkers': parts.push('checkers', card.winner ? `${card.winner} wins` : `${card.turn} to move`); break;
+      case 'storyboard':
+        parts.push(card.title ?? '');
+        for (const section of card.sections) for (const shot of section.shots) parts.push(section.title, shot.shot ?? '', shot.title ?? '', shot.notes ?? '');
+        break;
     }
     // Labels exist on every card kind.
     if (card.labels) parts.push(...card.labels.map(l => l.text));
@@ -1495,6 +1519,7 @@ export const overlaysMethods = {
       { label: 'To-do list',      tool: 'checklist' },
       { label: 'Kanban board',    tool: 'kanban' },
       { label: 'Column',          tool: 'column' },
+      { label: 'Storyboard',      tool: 'storyboard' },
       { label: 'Table',           tool: 'table' },
       { label: 'Callout',         tool: 'callout' },
       { label: 'Group frame',     tool: 'group' },

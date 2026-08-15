@@ -237,6 +237,7 @@ const DEFAULT_SIZE: Record<Card['kind'], { w: number; h: number }> = {
   'group': { w: 400, h: 300 },
   'calendar': { w: 460, h: 420 },
   'checkers': { w: 340, h: 380 },
+  'storyboard': { w: 640, h: 380 },
 };
 
 // ── Visual Notes → native JSON Canvas ──────────────────────────────────────
@@ -438,6 +439,13 @@ function cardToNodes(card: Card): CanvasNode[] {
     case 'checkers': {
       const c = card;
       return [{ ...base, type: 'text', text: checkersToMarkdown(c), vn: stashable(c) }];
+    }
+
+    case 'storyboard': {
+      const s = card;
+      const lines = s.sections.flatMap(section => section.shots.map((shot, i) =>
+        `- ${shot.shot || `${section.title} ${i + 1}`}${shot.title ? ` — ${shot.title}` : ''}${shot.duration ? ` — ${shot.duration}s` : ''}`));
+      return [{ ...base, type: 'text', text: `## Storyboard scene: ${s.title ?? 'Untitled'}\n\n${lines.join('\n') || '*(No shots yet)*'}`, vn: stashable(s) }];
     }
   }
 }

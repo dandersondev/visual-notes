@@ -6,7 +6,7 @@ Boards that live in your [Obsidian](https://obsidian.md) vault as real Canvas fi
 
 A place to think in space rather than in a list, the way you would in Milanote, Notion or Trello: plan a project across a wall of sticky notes, keep a reading list as icon tiles, run a kanban board, draw over the top of it, and connect the pieces with labelled lines.
 
-**How is this different from Obsidian's Canvas?** It *is* Canvas — the same spec-compliant `.canvas` file, sitting in your vault, openable in the native view. Visual Notes adds what Canvas leaves out: kanban boards, tables, checklists, calendars, columns, group frames, pen and highlighter drawing, and boards that nest inside one another.
+**How is this different from Obsidian's Canvas?** It *is* Canvas — the same spec-compliant `.canvas` file, sitting in your vault, openable in the native view. Visual Notes adds what Canvas leaves out: storyboards, kanban boards, tables, checklists, calendars, columns, group frames, pen and highlighter drawing, and boards that nest inside one another.
 
 ---
 
@@ -19,7 +19,7 @@ A place to think in space rather than in a list, the way you would in Milanote, 
 - Drag to reorder; right-click to edit
 
 ### Templates
-- **15 bundled starter templates** (Brainstorm, Project Roadmap, Weekly Planner, Study Hub, Travel Planner, Fitness & Habits, and more) — pick one from **New board from template** to start with a populated board instead of a blank one
+- **17 bundled starter templates** (Brainstorm, Project Roadmap, Weekly Planner, Study Hub, Travel Planner, Screenwriting, and more) — pick one from **New board from template** to start with a populated board instead of a blank one
 - **Save any board as your own template** via the toolbar's "···" menu or the **Save current board as template** command, then reuse it the same way as a bundled one
 - **Group templates** — select any cluster of cards, right-click → **Create template…**, give it a name, and it becomes a reusable build you can drop onto any board from the canvas right-click menu's **Templates** entry. Anything can be templated: a styled header row, a meeting-notes layout, a connected diagram, a set of kanban columns
 - Your own templates live in `_Templates/` in the vault (group templates in `_Templates/Groups/`), as plain `.canvas` files you can inspect, rename, edit, or delete directly
@@ -38,6 +38,24 @@ A place to think in space rather than in a list, the way you would in Milanote, 
 - **Board-level search** and a **tag/type filter** panel to narrow a busy board down
 - **Archive** cards you're not using instead of deleting them, and browse/restore from the archive any time
 - Drag notes, canvases, and folders straight from the file explorer onto the canvas to create tiles — dragging another Visual Notes file in creates a nested board, exactly like nesting boards in Milanote
+
+### Storyboards
+A Storyboard is one canvas card containing an entire visual sequence, so planning a scene does not add dozens of specialist cards to the main board. Add one from the toolbar's **···** menu, the `/` quick-add palette, or the canvas right-click menu, then use its expand button or double-click its preview to enter the focused editor.
+
+- Organise the overall scene into **scene sections**, with a draggable **shot** filmstrip along the bottom
+- Add, duplicate, delete and reorder shots, or move a shot to another scene section; set each shot's number, title, duration and notes
+- Frame shots as **16:9, 4:3, 1:1 or 9:16**, and add a background image from the vault
+- **Import an image folder** to create one named shot per image in a single action
+- Draw directly on a shot with pressure-aware Pen, Marker, Highlighter and textured Pencil presets; adjust size, colour, opacity and smoothing, or disable variable pressure for a uniform line
+- Toggle **onion skinning** to ghost the previous shot beneath the current frame while drawing
+- Select annotations to move, resize, reshape, recolour, copy between shots or delete with Delete/Backspace; selected arrows have endpoint and bend handles using the same trimmed curve geometry as canvas connections
+- Edit selected text in the inspector's Text field; newly placed text focuses that field automatically
+- Storyboard-local **Undo/Redo** treats a complete draw or drag gesture as one action (`⌘/Ctrl Z`, `⌘/Ctrl Shift Z`, or `⌘/Ctrl Y`)
+- See the running shot count and sequence duration, play using each shot's timing in the editor or directly inside the canvas card, export a Markdown shot list, or export the whole Storyboard as a PNG contact sheet
+- Switch the card's normal canvas preview between a horizontal filmstrip and a grid, and cycle its shot previews through Small, Medium and Large; shot notes appear beneath their frames as readable descriptions without opening the editor
+- Open the bundled **Screenwriting** template for a working four-shot example
+
+The Storyboard remains one normal, movable and resizable JSON Canvas node. Obsidian's native Canvas shows a readable Markdown shot list, while Visual Notes stores the full scene sections, shots, annotations and shot-relative ink in the node's `vn` metadata.
 
 ### Locking
 Kanban boards, kanban columns, and generic Columns each have a padlock toggle: a locked container can't have items dragged into or out of it, but its own cards can still be freely dragged and repositioned.
@@ -241,7 +259,7 @@ Visual Notes is built with heavy AI assistance. Most of the code is written by C
 I'm saying so up front because "who actually maintains this, and will it still work in six months" is a fair question to ask of any plugin, and a fairer one when AI is involved. The honest answers:
 
 - **Every release is tested in my own vault** — desktop and iPad — before it goes out.
-- **The test suite runs on every build**: 518 tests, including regressions written for specific bugs people reported, each verified by reintroducing the bug and confirming the test catches it.
+- **The test suite runs on every build**: more than 770 tests, including regressions written for specific bugs people reported, each verified by reintroducing the bug and confirming the test catches it.
 - **The [changelog](CHANGELOG.md) records every release and what prompted it.** Most entries started as a user report.
 - **Bugs get fixed.** [Open an issue](https://github.com/dandersondev/visual-notes/issues) and you'll get a reply.
 
@@ -257,6 +275,7 @@ cd visual-notes
 npm install
 npm run dev        # watch mode — rebuilds on save
 npm run build      # production build
+npm run generate-benchmarks # realistic large-board and 40-shot Storyboard fixtures
 ```
 
 Copy or symlink the folder into `<vault>/.obsidian/plugins/visual-notes/`, then enable the plugin in Obsidian.

@@ -195,3 +195,37 @@ describe('stylesheet: the toolbar buttons opt out of the OS touch gesture', () =
     expect(sheetBtn).toMatch(/touch-action\s*:\s*auto/);
   });
 });
+
+describe('stylesheet: Storyboard remains editable on narrow screens', () => {
+  const mobile = declarations.match(/@media \(max-width: 800px\)[\s\S]*$/)?.[0] ?? '';
+
+  it('provides the mobile pane navigation', () => {
+    expect(mobile).toMatch(/\.visual-notes-storyboard-mobile-nav\s*\{[^}]*display:\s*flex/);
+  });
+
+  it.each(['sections', 'stage', 'inspector'])('has a %s pane state', pane => {
+    expect(mobile).toContain(`[data-mobile-pane="${pane}"]`);
+  });
+
+  it('does not unconditionally hide both metadata panes', () => {
+    expect(mobile).not.toMatch(/\.visual-notes-storyboard-sections\s*,\s*\.visual-notes-storyboard-inspector\s*\{[^}]*display:\s*none/);
+  });
+});
+
+describe('stylesheet: Storyboard grid preview uses transformed-card-safe wrapping', () => {
+  for (const [size, width] of [['sm', '110px'], ['md', '160px'], ['lg', '240px']] as const) {
+    it(`defines an explicit ${size} flex basis`, () => {
+      expect(declarations).toMatch(new RegExp(
+        `\\.visual-notes-storyboard-preview\\.is-grid\\.is-size-${size}\\s*\\{[^}]*` +
+        `--vn-storyboard-grid-basis:\\s*${width}`,
+      ));
+    });
+  }
+
+  it('wraps with flex instead of CSS Grid inside a transformed canvas card', () => {
+    const rule = declarations.match(/\.visual-notes-storyboard-preview\.is-grid\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toMatch(/display:\s*flex/);
+    expect(rule).toMatch(/flex-wrap:\s*wrap/);
+    expect(rule).not.toMatch(/display:\s*grid/);
+  });
+});

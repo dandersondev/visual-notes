@@ -25,7 +25,7 @@ const ALL_KINDS = [
   'tile', 'sticky', 'checklist', 'comment', 'table',
   'image', 'audio', 'video', 'note-link', 'bookmark',
   'kanban-column', 'kanban-board', 'column', 'map', 'swatch', 'file', 'callout',
-  'group', 'calendar', 'checkers',
+  'group', 'calendar', 'checkers', 'storyboard',
 ] as const;
 
 const templateFiles = readdirSync(TEMPLATES).filter(f => f.endsWith('.canvas')).sort();

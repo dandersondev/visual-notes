@@ -2,6 +2,32 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.2.0
+
+### Added
+- **Storyboard cards turn a board into a shot-planning workspace without filling it with new card types.** Add one from the toolbar's **···** menu, the `/` quick-add palette, or the canvas right-click menu. A Storyboard stays one movable, resizable Canvas card; open it to work in a focused editor with scene sections on the left, the current shot in the middle, its inspector on the right, and a draggable filmstrip below.
+- **Build and arrange shots inside a Storyboard.** Add, duplicate, delete and drag shots into order, or move them between scene sections; give each one a number, title, duration and notes; choose 16:9, 4:3, square or vertical framing; and use an image from the vault as its background. Importing an image folder creates one named shot per image in a single action. The card itself can show either a filmstrip or grid preview.
+- **Draw and annotate directly on a shot.** The focused editor has select, pen, eraser, text and arrow tools. Text, arrows and individual ink strokes can be selected, moved or reshaped, recoloured, resized, copied between shots and removed with Delete/Backspace. Selecting text opens a normal inspector field that updates the shot live. Storyboard-local Undo/Redo covers drawing, dragging, editing, styling, shot changes and reordering as complete actions rather than saving every pointer movement separately.
+- **Animate, time and export a Storyboard.** Onion skinning ghosts the previous shot under the current frame. The editor reports the running shot count and total duration; playback advances through every shot using its timing, with a 300 ms floor for zero-length entries. Export either a Markdown shot list or a PNG contact sheet containing section headings, shot images, annotations, numbers and titles. Temporary contact-sheet content is always removed again, including after a failed export.
+- **The Screenwriting starter template now includes a working Storyboard.** Its four-shot rooftop scene demonstrates shot metadata, text, an arrow, ink and mixed aspect ratios rather than describing storyboarding with ordinary placeholder cards.
+- **Shot notes remain visible on the canvas.** A shot with notes displays them as a description directly beneath its frame in the Storyboard card's filmstrip or grid preview, without requiring the focused editor to be open.
+- **Storyboard previews can be resized.** The S/M/L control in the card header cycles every shot between compact, standard and large previews in both filmstrip and grid layouts, keeping the sequence consistent while allowing more visual detail when the card has room.
+- **Play a Storyboard directly on the canvas.** The card's Play button replaces its filmstrip or grid with a large single-shot player, advances through every scene section using each shot's duration, displays shot progress and restores the normal preview when playback finishes or is stopped.
+- **Empty Storyboard frames follow the active theme.** Their image-placeholder pattern and text now use Obsidian's theme colours, remaining dark in dark mode and becoming a softer light-grey treatment in light mode.
+- **Storyboard drawing now has a real brush engine.** Choose Pen, Marker, Highlighter or textured Pencil, then adjust size, colour, opacity and smoothing from the live brush bar. Apple Pencil and compatible styluses use their reported pressure; mouse drawing receives simulated pressure, and pressure can be disabled for a uniform-width stroke. Coalesced pointer samples preserve fast stylus movement, while the same deterministic renderer is used in the editor, onion skin, canvas preview, playback and exports.
+- **Storyboard arrows use the canvas connection geometry.** Their shafts can bend through a draggable center handle, arrowheads follow the curve's arrival tangent, and the visible shaft is trimmed by the exact tip length so no rectangular line cap protrudes through the arrowhead.
+- **The focused Storyboard editor remains complete on iPad-sized screens.** Scenes, Stage and Shot Inspector are now switchable drawers instead of hiding both metadata panes. The brush bar scrolls horizontally, toolbar actions are grouped, safe-area padding is respected, and choosing a scene or filmstrip shot returns directly to the Stage.
+
+### Fixed
+- **Boards containing a link card can be exported again.** Exporting to PNG or PDF failed outright as soon as a board held a link — reported as working "with many features, but as soon as I add a link I can't export". A link card shows a preview image and favicon fetched from the site itself, and the export had to re-request those pictures while rasterising the board. Most sites refuse that second request, and a single refused picture stopped the entire export with no file produced. Preview images are now fetched the same way the rest of the plugin fetches remote content, so they are reachable and **appear in the export** rather than merely failing quietly; anything genuinely unavailable is left as a blank space, which can no longer take the export down with it. The same applies to note-link covers, external image cards and the Storyboard contact sheet. Reported with a console trace that identified the cause exactly — thank you.
+
+### Technical
+- A Storyboard is stored as one spec-compliant JSON Canvas node. Its `sections`, `shots`, annotations and shot-relative ink live in the node's `vn` metadata, while native Obsidian Canvas receives a readable Markdown shot list.
+- Interrupted touch/stylus gestures clean up on `pointercancel` as well as `pointerup`, preventing cancelled iPad gestures from continuing on a later hover. Cross-window hit testing uses Obsidian's safe `instanceOf` helper.
+- Opening and closing a Storyboard without changing it no longer schedules a board write. Keyboard events inside the focused editor are isolated from the board underneath, so Escape cannot be swallowed by the board's pen mode.
+- Storyboard data has dedicated JSON Canvas round-trip coverage, real starter-template corpus coverage, and pointer release/cancellation regression tests.
+- Normalized ink samples are rounded to four decimal places (0.1 px at a 1000 px frame), substantially reducing board writes without visible drawing loss. The frame renderer remains independent of modal state so its annotation layer can be reused by other image-based cards later.
+
 ## 1.1.34
 
 ### Fixed

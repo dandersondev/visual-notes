@@ -694,8 +694,59 @@ export interface CheckersCard extends BaseCard {
   winner?: 'r' | 'b';
 }
 
+// A Storyboard is deliberately one top-level canvas card. Sections, shots and
+// the objects drawn inside a shot are lightweight nested records rather than
+// Card members, keeping them out of the global toolbar/selection/archive.
+export type StoryboardAspectRatio = '16:9' | '4:3' | '1:1' | '9:16';
+
+export interface StoryboardPoint { x: number; y: number; p?: number; }
+export type StoryboardBrush = 'pen' | 'marker' | 'highlighter' | 'pencil';
+
+export interface StoryboardStroke {
+  id: string;
+  points: StoryboardPoint[]; // normalized 0..1 shot coordinates
+  color: string;
+  width: number;
+  brush?: StoryboardBrush;
+  opacity?: number;
+  smoothing?: number;
+  pressureEnabled?: boolean;
+  simulatePressure?: boolean;
+}
+
+export type StoryboardObject =
+  | { id: string; kind: 'text'; x: number; y: number; text: string; color?: string; size?: number }
+  | { id: string; kind: 'arrow'; x: number; y: number; x2: number; y2: number; bend?: number; color?: string; width?: number };
+
+export interface StoryboardShot {
+  id: string;
+  shot?: string;
+  title?: string;
+  duration?: number;
+  notes?: string;
+  aspectRatio: StoryboardAspectRatio;
+  background?: { type: 'vault'; path: string } | { type: 'external'; url: string };
+  objects: StoryboardObject[];
+  drawings: StoryboardStroke[];
+  status?: 'idea' | 'draft' | 'approved' | 'shot';
+}
+
+export interface StoryboardSection {
+  id: string;
+  title: string;
+  shots: StoryboardShot[];
+}
+
+export interface StoryboardCard extends BaseCard {
+  kind: 'storyboard';
+  title?: string;
+  view?: 'filmstrip' | 'grid';
+  previewSize?: 'sm' | 'md' | 'lg';
+  sections: StoryboardSection[];
+}
+
 export type Card =
   | TileCard | StickyCard | ChecklistCard | CommentCard | TableCard
   | ImageCard | AudioCard | VideoCard | NoteLinkCard | BookmarkCard
   | KanbanColumnCard | KanbanBoardCard | ColumnCard | MapCard | SwatchCard | FileCard | CalloutCard
-  | GroupCard | CalendarCard | CheckersCard | TextCard;
+  | GroupCard | CalendarCard | CheckersCard | StoryboardCard | TextCard;

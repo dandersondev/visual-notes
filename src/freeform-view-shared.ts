@@ -4,7 +4,7 @@
 
 import {
   App, TFile, Notice, Modal,
-  FuzzySuggestModal,
+  FuzzySuggestModal, requestUrl, arrayBufferToBase64,
 } from 'obsidian';
 import {
   TileCard, StickyCard, TextCard, ChecklistCard, NoteLinkCard,
@@ -12,7 +12,7 @@ import {
   KanbanItem, Card, ColumnCard, ColumnChildCard, CommentCard,
   TableCard,
   MapCard, SwatchCard, FileCard, CalloutCard, GroupCard,
-  CalendarCard, CalendarNoteImportance, CheckersCard,
+  CalendarCard, CalendarNoteImportance, CheckersCard, StoryboardCard,
   StickyTextScale, STICKY_TEXT_SCALES,
 } from './file-types';
 import { isDarkTheme } from './color-utils';
@@ -91,6 +91,10 @@ export const GROUP_DEFAULT_H     = 300;
 export const GROUP_MIN_W         = 160;
 export const GROUP_MIN_H         = 120;
 export const GROUP_PAD           = 40; // margin added around selected cards' bbox when grouping
+export const STORYBOARD_DEFAULT_W = 640;
+export const STORYBOARD_DEFAULT_H = 380;
+export const STORYBOARD_MIN_W = 360;
+export const STORYBOARD_MIN_H = 240;
 export const AUDIO_MIN_W         = 200;
 export const AUDIO_MIN_H         = 72;
 export const AUDIO_EXTS          = ['mp3', 'wav'];
@@ -101,6 +105,84 @@ export const AUDIO_EXTS          = ['mp3', 'wav'];
 // can't play is caught by the <video> element's error event and shown as a
 // card offering to open it externally, which beats a black rectangle.
 export const VIDEO_EXTS          = ['mp4', 'webm', 'mov', 'm4v', 'ogv', 'mkv', 'avi'];
+
+/**
+ * A 1x1 transparent PNG. Stands in for any image the export cannot fetch, so
+ * a picture that fails is a gap in the output rather than no output at all.
+ */
+export const TRANSPARENT_PX =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
+/** How long a single remote image may hold the export up before it is skipped. */
+const EXPORT_IMAGE_TIMEOUT_MS = 8000;
+
+/**
+ * html-to-image options that stop any one picture from killing a render.
+ *
+ * `imagePlaceholder` replaces the empty-string src the library otherwise
+ * assigns after a failed fetch — an empty src is what fires `error`.
+ * `onImageErrorHandler` is the backstop: with it set, the library resolves
+ * instead of using `reject` as its `onerror`, so even an image that fails for
+ * some reason not anticipated here leaves a gap rather than no file.
+ *
+ * Spread into every toPng call. Both are needed: the first prevents the error,
+ * the second survives it.
+ */
+export const EXPORT_IMAGE_TOLERANCE = {
+  imagePlaceholder: TRANSPARENT_PX,
+  onImageErrorHandler: () => { /* keep going; a missing picture is not a failed export */ },
+};
+
+/**
+ * Swaps every remote `<img>` under `root` for an inline data URL, returning a
+ * function that puts the original addresses back.
+ *
+ * Board export rasterises the live DOM through html-to-image, which re-fetches
+ * each image from inside the renderer to inline it. A remote image -- a
+ * bookmark's preview or favicon, a note-link cover, an external image card --
+ * fails that fetch on CORS, and the library's own failure path is worse than
+ * it looks: it falls back to `imagePlaceholder || ''`, assigns that to the
+ * cloned `<img>`, and an empty `src` fires `error`. With no
+ * `onImageErrorHandler` set, `onerror` *is* `reject`, so one unreachable
+ * picture rejects the whole render with a raw Event. Reported as "I can export
+ * with many features but as soon as I add a link I can't export", with an
+ * error naming `img.visual-notes-bookmark-img`.
+ *
+ * Obsidian's `requestUrl` makes the request outside the renderer, where CORS
+ * does not apply, so the bytes are actually reachable -- the export can
+ * *contain* the previews rather than merely survive them. Anything still
+ * unreachable becomes a transparent pixel, which loads, so it can no longer
+ * abort anything.
+ *
+ * The live DOM is mutated deliberately: html-to-image clones the tree itself,
+ * so a copy made here would not be what gets rasterised. Always call the
+ * returned restore function in a `finally`.
+ */
+export async function inlineRemoteImages(root: HTMLElement): Promise<() => void> {
+  const remote = Array.from(root.querySelectorAll('img'))
+    .filter(img => /^https?:/i.test(img.src));
+  const restore: { img: HTMLImageElement; src: string }[] = [];
+
+  await Promise.all(remote.map(async (img) => {
+    const original = img.src;
+    restore.push({ img, src: original });
+    try {
+      const res = await Promise.race([
+        requestUrl({ url: original }),
+        new Promise<never>((_, rej) =>
+          window.setTimeout(() => rej(new Error('timed out')), EXPORT_IMAGE_TIMEOUT_MS)),
+      ]);
+      const type = res.headers['content-type'] || res.headers['Content-Type'] || 'image/png';
+      img.src = `data:${type};base64,${arrayBufferToBase64(res.arrayBuffer)}`;
+    } catch {
+      // Unreachable, blocked, or slow. A transparent pixel loads, and loading
+      // is the only thing that matters here.
+      img.src = TRANSPARENT_PX;
+    }
+  }));
+
+  return () => { for (const { img, src } of restore) img.src = src; };
+}
 
 /**
  * Seconds as m:ss, or h:mm:ss once past an hour. Guards the non-finite
@@ -307,7 +389,7 @@ export interface AppWithPrivateAPIs extends App {
   plugins?: { enabledPlugins?: Set<string> };
 }
 
-export type SupportedCard = TileCard | StickyCard | TextCard | ChecklistCard | CommentCard | TableCard | NoteLinkCard | ImageCard | AudioCard | VideoCard | BookmarkCard | KanbanColumnCard | KanbanBoardCard | ColumnCard | MapCard | SwatchCard | FileCard | CalloutCard | GroupCard | CalendarCard | CheckersCard;
+export type SupportedCard = TileCard | StickyCard | TextCard | ChecklistCard | CommentCard | TableCard | NoteLinkCard | ImageCard | AudioCard | VideoCard | BookmarkCard | KanbanColumnCard | KanbanBoardCard | ColumnCard | MapCard | SwatchCard | FileCard | CalloutCard | GroupCard | CalendarCard | CheckersCard | StoryboardCard;
 
 export const KANBAN_BOARD_MIN_W = 320;
 
@@ -334,6 +416,7 @@ export function cardMinSize(kind: Card['kind']): { w: number; h: number } {
   if (kind === 'group')         return { w: GROUP_MIN_W, h: GROUP_MIN_H };
   if (kind === 'calendar')      return { w: CALENDAR_MIN_W, h: CALENDAR_MIN_H };
   if (kind === 'checkers')      return { w: CHECKERS_MIN_W, h: CHECKERS_MIN_H };
+  if (kind === 'storyboard')    return { w: STORYBOARD_MIN_W, h: STORYBOARD_MIN_H };
   return { w: TILE_MIN_W, h: TILE_MIN_H };
 }
 
@@ -816,4 +899,3 @@ export class BookmarkInputModal extends Modal {
 
   override onClose(): void { this.contentEl.empty(); }
 }
-

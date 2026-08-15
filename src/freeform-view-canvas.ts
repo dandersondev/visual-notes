@@ -47,6 +47,7 @@ import {
   KANBAN_DEFAULT_W, KANBAN_DEFAULT_H, COLUMN_DEFAULT_W, COLUMN_DEFAULT_H,
   CALENDAR_DEFAULT_W, CALENDAR_DEFAULT_H,
   CHECKERS_DEFAULT_W, CHECKERS_DEFAULT_H,
+  STORYBOARD_DEFAULT_W, STORYBOARD_DEFAULT_H,
   DRAG_THRESHOLD, IMAGE_EXTS, CONN_COLOR_PRESETS,
   isTypingElement, ARROW_NUDGE, NUDGE_FINE, NUDGE_COARSE, isInEdgeSwipeZone, NATIVE_DROP_GRACE_MS,
   isColumnChildKind,
@@ -355,6 +356,11 @@ export const canvasMethods = {
     this.outer.addEventListener('touchcancel', (e) => { this.activeTouches = e.touches.length; this.pinchDist = null; });
 
     this.docKeyDown = (e: KeyboardEvent) => {
+      // A Storyboard editor is a modal sub-workspace, not part of the board
+      // beneath it. In particular, Escape belongs to the modal; letting the
+      // board's document-wide pen exit see it first swallowed the close key.
+      const keyTarget = e.target as Node | null;
+      if (keyTarget?.instanceOf(Element) && keyTarget.closest('.visual-notes-storyboard-modal')) return;
       // Pen-mode exit must work document-wide, not just while the canvas
       // itself has focus — clicking any pen-picker control (color swatch,
       // width, instrument) moves focus onto that control, and the outer
@@ -564,6 +570,8 @@ export const canvasMethods = {
         this.addKanbanBoardAt(this.applySnap(cp.x - (KANBAN_DEFAULT_W * 2 + 12) / 2), this.applySnap(cp.y - KANBAN_DEFAULT_H / 2))));
       menu.addItem(i => i.setTitle('Column').setIcon('rows-3').onClick(() =>
         this.addColumnCardAt(this.applySnap(cp.x - COLUMN_DEFAULT_W / 2), this.applySnap(cp.y - COLUMN_DEFAULT_H / 2))));
+      menu.addItem(i => i.setTitle('Storyboard').setIcon('clapperboard').onClick(() =>
+        this.addStoryboardCardAt(this.applySnap(cp.x - STORYBOARD_DEFAULT_W / 2), this.applySnap(cp.y - STORYBOARD_DEFAULT_H / 2))));
       menu.addItem(i => i.setTitle('Group frame').setIcon('frame').onClick(() =>
         this.addGroupAt(this.applySnap(cp.x - GROUP_DEFAULT_W / 2), this.applySnap(cp.y - GROUP_DEFAULT_H / 2))));
       menu.addItem(i => i.setTitle('Swatch').setIcon('pipette').onClick(() =>
@@ -1938,6 +1946,8 @@ export const canvasMethods = {
         this.addKanbanBoardAt(s(cx - (KANBAN_DEFAULT_W * 2 + 12) / 2), s(cy - KANBAN_DEFAULT_H / 2)); break;
       case 'column':
         this.addColumnCardAt(s(cx - COLUMN_DEFAULT_W / 2), s(cy - COLUMN_DEFAULT_H / 2)); break;
+      case 'storyboard':
+        this.addStoryboardCardAt(s(cx - STORYBOARD_DEFAULT_W / 2), s(cy - STORYBOARD_DEFAULT_H / 2)); break;
       case 'image':
         this.addImageAt(s(cx - IMAGE_DEFAULT_W / 2), s(cy - IMAGE_DEFAULT_H / 2)); break;
       case 'audio':
