@@ -54,6 +54,13 @@ export class FakeVault {
     return entry.content as string;
   }
 
+  /** The counterpart of textAt for anything written through createBinary. */
+  binaryAt(path: string): ArrayBuffer {
+    const entry = this.entries.get(path);
+    if (!entry) throw new Error(`FakeVault: no such file ${path}`);
+    return entry.content as ArrayBuffer;
+  }
+
   has(path: string): boolean {
     return this.entries.has(path) || this.folders.has(path);
   }

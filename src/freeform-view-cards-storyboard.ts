@@ -10,6 +10,8 @@ import {
   inlineRemoteImages, EXPORT_IMAGE_TOLERANCE,
 } from './freeform-view-shared';
 import type { FreeformRenderer } from './freeform-view';
+import { deliverExport } from './asset-manager';
+import { dataUrlToBytes } from './pdf-export';
 import {
   arrowheadPoints, buildTrimmedCurvedPath, buildTrimmedStraightPath,
   curveControlPoint, curveThroughPoint, perpendicularOffset,
@@ -360,7 +362,7 @@ class StoryboardEditorModal extends Modal {
       this.onionSkin = !this.onionSkin; this.onionBtn.toggleClass('is-active', this.onionSkin); this.renderStage();
     });
     this.iconButton(sequenceTools, 'play', 'Play', () => this.play());
-    this.iconButton(sequenceTools, 'file-down', 'Shot list', () => this.exportShotList());
+    this.iconButton(sequenceTools, 'file-down', 'Shot list', () => void this.exportShotList());
     this.iconButton(sequenceTools, 'image-down', 'Export', () => void this.exportContactSheet());
     const mobileNav = top.createDiv('visual-notes-storyboard-mobile-nav');
     for (const [pane, icon, label] of [['sections', 'list-tree', 'Scenes'], ['stage', 'image', 'Stage'], ['inspector', 'sliders-horizontal', 'Shot']] as const) {
@@ -832,11 +834,17 @@ class StoryboardEditorModal extends Modal {
     this.commit(); this.refresh();
   }
 
-  private exportShotList(): void {
+  private async exportShotList(): Promise<void> {
     const markdown = storyboardShotListMarkdown(this.card);
-    const url = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }));
-    createEl('a', { href: url, attr: { download: `${storyboardExportBaseName(this.card.title)}-shot-list.md` } }).click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    // Encoded here so both delivery routes start from bytes — see deliverExport.
+    const bytes = new TextEncoder().encode(markdown);
+    const name = `${storyboardExportBaseName(this.card.title)}-shot-list.md`;
+    try {
+      await deliverExport(this.app, bytes, name, 'text/markdown;charset=utf-8');
+    } catch (error) {
+      console.error('Visual Notes: shot list export failed', error);
+      new Notice('Shot list export failed.');
+    }
   }
 
   private play(): void {
@@ -873,8 +881,11 @@ class StoryboardEditorModal extends Modal {
       // removed in the finally below, unlike the live board.
       await inlineRemoteImages(sheet);
       const url = await toPng(sheet, { pixelRatio: 2, backgroundColor: '#fff', ...EXPORT_IMAGE_TOLERANCE });
-      createEl('a', { href: url, attr: { download: `${storyboardExportBaseName(this.card.title)}-contact-sheet.png` } }).click();
-      new Notice('Storyboard contact sheet exported.');
+      const name = `${storyboardExportBaseName(this.card.title)}-contact-sheet.png`;
+      // deliverExport writes into the vault on mobile and reports where, so
+      // its own Notice replaces the generic one this used to show.
+      const path = await deliverExport(this.app, dataUrlToBytes(url), name, 'image/png');
+      if (!path) new Notice('Storyboard contact sheet exported.');
     } catch (error) { console.error('Visual Notes: storyboard export failed', error); new Notice('Storyboard export failed.'); }
     finally { sheet.remove(); }
   }

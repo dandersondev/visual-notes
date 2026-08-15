@@ -2,6 +2,11 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.2.2
+
+### Fixed
+- **Exports now arrive somewhere on iPhone and iPad.** Exporting a board as PNG or PDF, or a Storyboard as a contact sheet or shot list, appeared to work on mobile and then produced no file at all — no error, nothing saved, nowhere to look. Every export was handed over as a browser download, which the desktop app performs and the mobile app cannot. On mobile the file is now written into an **`_Exports`** folder in your vault and a message tells you the exact path, so it can be opened in Obsidian, found in the Files app, or picked up by whatever syncs your vault. Repeated exports of the same board are numbered rather than overwriting one another. Desktop is unchanged and still downloads as before.
+
 ## 1.2.1
 
 No behaviour changes — this clears every warning Obsidian's plugin health check

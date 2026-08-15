@@ -18,7 +18,7 @@ import {
   screenToCanvas, clampZoom,
 } from './canvas/pan-zoom';
 import { ContextBar, CtxEvent } from './context-bar';
-import { sortAssetFile, saveNewAsset } from './asset-manager';
+import { sortAssetFile, saveNewAsset, deliverExport } from './asset-manager';
 import { promptSaveBoardAsTemplate } from './file-io';
 import { CropImageModal } from './crop-modal';
 import { toggleBulletList } from './bullet-list';
@@ -1148,10 +1148,10 @@ export const overlaysMethods = {
 
       const base = this.file.basename || 'Board';
       if (format === 'png') {
-        // Deliberately not attached to the document — Chromium/Electron
-        // trigger the download from a plain click() regardless, and an
-        // unattached element sidesteps ever needing to remove it again.
-        createEl('a', { href: dataUrl, attr: { download: `${base}.png` } }).click();
+        // deliverExport decides how the file reaches the user: a browser
+        // download on desktop, a vault file on mobile, where the download
+        // never worked. See its comment.
+        await deliverExport(this.app, dataUrlToBytes(dataUrl), `${base}.png`, 'image/png');
       } else {
         // Re-render as JPEG (not the PNG already captured above) so the raw
         // bytes can be dropped straight into the PDF's DCTDecode image
@@ -1171,10 +1171,7 @@ export const overlaysMethods = {
         const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.92);
         const jpegBytes = dataUrlToBytes(jpegDataUrl);
         const pdfBytes = buildSingleImagePdf(jpegBytes, canvas.width, canvas.height);
-        const blob = new Blob([pdfBytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
-        const url = URL.createObjectURL(blob);
-        createEl('a', { href: url, attr: { download: `${base}.pdf` } }).click();
-        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        await deliverExport(this.app, pdfBytes, `${base}.pdf`, 'application/pdf');
       }
     } catch (err) {
       console.error('Visual Notes: board export failed', err);

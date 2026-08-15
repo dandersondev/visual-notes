@@ -1,4 +1,4 @@
-import { App, TFile } from 'obsidian';
+import { App, TFile, Notice, Platform } from 'obsidian';
 import { VisualNotesFile } from './file-types';
 import { readBoardFile, writeBoardFile, isVisualNotesOwnedFile, ensureDir } from './file-io';
 
@@ -53,6 +53,64 @@ export async function sortAssetFile(app: App, file: TFile): Promise<string> {
 // Write a new binary file (external drop / paste / upload) into _Assets/<type>/.
 // The filename is used as-is (after stripping spaces for path safety); collisions
 // are resolved by appending -2/-3/… before the extension.
+/** Where exports land in the vault. Alongside _Assets, and as visible. */
+export const EXPORT_DIR = '_Exports';
+
+/**
+ * Hands a finished export to the user, by whichever route the platform
+ * actually supports.
+ *
+ * Desktop keeps the browser download it has always used. Mobile cannot: every
+ * export was delivered by clicking a hidden `<a download>`, which Electron
+ * honours and the iPad's WKWebView does not -- so on an iPad the export ran to
+ * completion, reported success, and produced no file anywhere. Nothing failed
+ * loudly enough to notice, because nothing failed at all; the file simply had
+ * nowhere to go.
+ *
+ * There it is written into the vault instead, which is somewhere the user can
+ * actually reach -- through Obsidian, the Files app, or whatever syncs the
+ * vault -- and the Notice names the path so it is not a guess.
+ *
+ * Takes bytes rather than a data URL so both routes start from the same thing;
+ * the caller converts once and neither branch has to care.
+ *
+ * Returns the vault path when it wrote one, or null when it handed the file to
+ * the browser.
+ */
+export async function deliverExport(
+  app: App, bytes: Uint8Array, filename: string, mimeType: string,
+): Promise<string | null> {
+  if (Platform.isMobile) {
+    // `split('.').pop()` looks like it defaults to 'bin' for an extensionless
+    // name, but pop() on a non-empty array never returns undefined -- it
+    // returns the whole name, which lands the file at Board.Board. Split on
+    // the last dot instead, and only when there is one past the first
+    // character, so a dotfile keeps its name rather than losing it to `base`.
+    const dot = filename.lastIndexOf('.');
+    const hasExt = dot > 0;
+    const ext = hasExt ? filename.slice(dot + 1) : 'bin';
+    const base = hasExt ? filename.slice(0, dot) : filename;
+    await ensureDir(app, EXPORT_DIR);
+    const path = uniquePath(app, EXPORT_DIR, base, ext);
+    // Copied into a fresh buffer: a Uint8Array view may be a window onto a
+    // larger buffer, and handing that straight to createBinary would write
+    // whatever else happens to share it.
+    await app.vault.createBinary(path, bytes.slice().buffer);
+    new Notice(`Saved to ${path}`);
+    return path;
+  }
+
+  const url = URL.createObjectURL(new Blob([bytes.slice()], { type: mimeType }));
+  try {
+    createEl('a', { href: url, attr: { download: filename } }).click();
+  } finally {
+    // Freed on the next tick rather than immediately: revoking synchronously
+    // can cancel the download the click above has only just started.
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+  return null;
+}
+
 export async function saveNewAsset(app: App, data: ArrayBuffer, filename: string): Promise<string> {
   const ext      = filename.split('.').pop() ?? 'bin';
   const base     = filename.replace(/\.[^.]+$/, '');
