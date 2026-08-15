@@ -18,7 +18,7 @@ const declarations = css.replace(/\/\*[\s\S]*?\*\//g, '');
 
 // Property names Obsidian's checker flags. Add to this list as the checker
 // reports them; each entry needs a supported alternative, not a suppression.
-const FLAGGED = ['text-indent'];
+const FLAGGED = ['text-indent', 'break-inside'];
 
 describe('stylesheet: no browser features Obsidian flags as partial', () => {
   for (const prop of FLAGGED) {

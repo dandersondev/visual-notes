@@ -63,7 +63,9 @@ function ratioValue(ratio: StoryboardAspectRatio): number {
 }
 
 function allShots(card: StoryboardCard): StoryboardShot[] {
-  return card.sections.flatMap(section => section.shots);
+  const shots: StoryboardShot[] = [];
+  for (const section of card.sections) shots.push(...section.shots);
+  return shots;
 }
 
 const round4 = (value: number): number => Math.round(value * 10_000) / 10_000;
@@ -191,14 +193,14 @@ export function renderStoryboardShot(app: App, host: HTMLElement, shot: Storyboa
   if (src) host.createEl('img', { cls: 'visual-notes-storyboard-background', attr: { src } });
   else host.createDiv({ cls: 'visual-notes-storyboard-empty-frame', text: compact ? '' : 'Add a background image' });
 
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const svg = createSvg('svg');
   svg.setAttribute('class', 'visual-notes-storyboard-ink');
   svg.setAttribute('viewBox', '0 0 1000 1000');
   svg.setAttribute('preserveAspectRatio', 'none');
   host.appendChild(svg);
   for (const stroke of shot.drawings) {
     if (!stroke.points.length) continue;
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const path = createSvg('path');
     path.setAttribute('d', storyboardStrokePath(stroke));
     path.setAttribute('fill', stroke.color);
     path.setAttribute('fill-opacity', String(stroke.opacity ?? 1));
@@ -221,13 +223,13 @@ function renderObject(host: HTMLElement, object: StoryboardObject, compact: bool
   if (!svg) return;
   const geometry = storyboardArrowGeometry(object);
   if (geometry) {
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const line = createSvg('path');
     line.setAttribute('d', geometry.path); line.setAttribute('fill', 'none');
     line.setAttribute('stroke', object.color ?? '#ef4444'); line.setAttribute('stroke-width', String((object.width ?? 5) * 3));
     line.setAttribute('stroke-linecap', 'butt'); line.setAttribute('stroke-linejoin', 'round');
     line.dataset.storyboardKind = 'object'; line.dataset.storyboardId = object.id;
     svg.appendChild(line);
-    const tip = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    const tip = createSvg('polygon');
     tip.setAttribute('points', geometry.tip);
     tip.setAttribute('fill', object.color ?? '#ef4444');
     tip.dataset.storyboardKind = 'object'; tip.dataset.storyboardId = object.id;
@@ -239,16 +241,16 @@ function applyPencilTexture(svg: SVGSVGElement, path: SVGPathElement, strokeId: 
   const safeId = strokeId.replace(/[^a-zA-Z0-9_-]/g, '');
   const filterId = `vn-pencil-${safeId}`;
   let defs = svg.querySelector<SVGDefsElement>('defs');
-  if (!defs) { defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs'); svg.prepend(defs); }
-  const filter = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
+  if (!defs) { defs = createSvg('defs'); svg.prepend(defs); }
+  const filter = createSvg('filter');
   filter.setAttribute('id', filterId); filter.setAttribute('x', '-10%'); filter.setAttribute('y', '-10%');
   filter.setAttribute('width', '120%'); filter.setAttribute('height', '120%');
-  const noise = document.createElementNS('http://www.w3.org/2000/svg', 'feTurbulence');
+  const noise = createSvg('feTurbulence');
   noise.setAttribute('type', 'fractalNoise'); noise.setAttribute('baseFrequency', '.035 .7');
   noise.setAttribute('numOctaves', '2');
   noise.setAttribute('seed', String([...strokeId].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 997));
   noise.setAttribute('result', 'noise'); filter.appendChild(noise);
-  const rough = document.createElementNS('http://www.w3.org/2000/svg', 'feDisplacementMap');
+  const rough = createSvg('feDisplacementMap');
   rough.setAttribute('in', 'SourceGraphic'); rough.setAttribute('in2', 'noise'); rough.setAttribute('scale', '2.2');
   rough.setAttribute('xChannelSelector', 'R'); rough.setAttribute('yChannelSelector', 'G'); filter.appendChild(rough);
   defs.appendChild(filter); path.setAttribute('filter', `url(#${filterId})`);

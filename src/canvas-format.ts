@@ -41,7 +41,7 @@ import {
   StickyCard, ChecklistCard, CommentCard, TableCard, ImageCard, AudioCard,
   NoteLinkCard, BookmarkCard, KanbanColumnCard, KanbanBoardCard,
   MapCard, FileCard, GroupCard, KanbanItem,
-  CheckersCard, ConnectionAnchor, ConnectionSide,
+  CheckersCard, ConnectionAnchor, ConnectionSide, StoryboardCard,
 } from './file-types';
 import { isGoogleMapsUrl } from './thumbnail-utils';
 import { nearestColorName } from './named-colors';
@@ -442,12 +442,20 @@ function cardToNodes(card: Card): CanvasNode[] {
     }
 
     case 'storyboard': {
-      const s = card;
-      const lines = s.sections.flatMap(section => section.shots.map((shot, i) =>
-        `- ${shot.shot || `${section.title} ${i + 1}`}${shot.title ? ` — ${shot.title}` : ''}${shot.duration ? ` — ${shot.duration}s` : ''}`));
-      return [{ ...base, type: 'text', text: `## Storyboard scene: ${s.title ?? 'Untitled'}\n\n${lines.join('\n') || '*(No shots yet)*'}`, vn: stashable(s) }];
+      return [{ ...base, type: 'text', text: storyboardToMarkdown(card), vn: stashable(card) }];
     }
   }
+}
+
+function storyboardToMarkdown(storyboard: StoryboardCard): string {
+  const lines: string[] = [];
+  for (const section of storyboard.sections) {
+    for (let index = 0; index < section.shots.length; index++) {
+      const shot = section.shots[index];
+      lines.push(`- ${shot.shot || `${section.title} ${index + 1}`}${shot.title ? ` — ${shot.title}` : ''}${shot.duration ? ` — ${shot.duration}s` : ''}`);
+    }
+  }
+  return `## Storyboard scene: ${storyboard.title ?? 'Untitled'}\n\n${lines.join('\n') || '*(No shots yet)*'}`;
 }
 
 function checkersToMarkdown(c: CheckersCard): string {

@@ -2,6 +2,16 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.2.1
+
+No behaviour changes — this clears every warning Obsidian's plugin health check
+raised against the Storyboard code that shipped in 1.2.0.
+
+### Technical
+- Storyboard SVG is built through Obsidian's `createSvg` helper rather than raw `document.createElementNS`, covering the container, paths, polygons and the pencil texture's filter, turbulence and displacement nodes.
+- The Canvas serializer's Storyboard projection moved into a dedicated `storyboardToMarkdown` helper with an explicit card type, replacing two chained `flatMap` calls with plainly typed loops.
+- Dropped `break-inside` from the contact-sheet cell. The health check flags it as only partially supported, and it was doing nothing: the sheet is rasterised from a single CSS grid, never printed or paginated, so there was no fragmentation context for it to affect. The stylesheet test now refuses its return.
+
 ## 1.2.0
 
 ### Added

@@ -8127,7 +8127,13 @@ input.visual-notes-calendar-month-input {
 .visual-notes-storyboard-add-shot { flex: 0 0 90px; height: 58px; }
 .visual-notes-storyboard-contact-sheet { position: fixed; left: -100000px; top: 0; width: 1400px; padding: 50px; background: #fff; color: #111; font-family: sans-serif; }
 .visual-notes-storyboard-contact-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 24px; }
-.visual-notes-storyboard-contact-cell { break-inside: avoid; }
+/* .visual-notes-storyboard-contact-cell used to avoid page-fragmentation
+   breaks here, until 1.2.1. Obsidian's health check flags that property as
+   only partially supported, and it was doing nothing anyway: the contact
+   sheet is rasterised from a single CSS grid, never printed or paginated, so
+   there was no fragmentation context for it to influence. The rule carried no
+   other declaration, so it is gone rather than emptied. Guarded by the FLAGGED
+   list in stylesheet-compat.test.ts. */
 .visual-notes-storyboard-contact-meta { padding: 7px 0 5px; font-weight: 600; }
 .visual-notes-storyboard-contact-notes { padding: 0 0 16px; color: #444; font-size: 14px; font-weight: 400; white-space: pre-wrap; }
 @media (max-width: 800px) {
