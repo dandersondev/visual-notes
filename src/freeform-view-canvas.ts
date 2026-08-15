@@ -1238,6 +1238,10 @@ export const canvasMethods = {
 
       let hoveredCardId: string | null = null;
       let hoveredKind: 'kanban' | 'column' | null = null;
+      // Set when the drag crosses its threshold and pushes an undo entry; read
+      // only by the stand-down path in onUp, which unwinds it.
+      let undoDepth = -1;
+      let redoBefore: string[] = [];
 
       // Candidate kanban/column drop targets are snapshotted once here
       // (id, kind, and its rect) instead of re-scanning every card on the
@@ -1380,7 +1384,12 @@ export const canvasMethods = {
           // back so the controls could work. From here it is a real drag, so
           // the usual guarantees are wanted.
           takeCapture();
+          // Held so a drag that gets cancelled can put the history back
+          // exactly as it found it — pushUndo also clears the redo stack, so
+          // the old one has to be kept by reference to be restorable.
+          redoBefore = this.redoStack;
           this.pushUndo();
+          undoDepth = this.undoStack.length;
           startLift();
         }
         // Update smoothed velocity from instantaneous pointer speed — kept
@@ -1399,15 +1408,26 @@ export const canvasMethods = {
           moveFrameId = window.requestAnimationFrame(flushMoveFrame);
         }
       };
-      // `cancelled` marks the drag as abandoned rather than released — see
-      // cancelActiveCardDrag. It must never be inferred from the event: the
-      // synthetic one carries no coordinates, and a drop is decided by where
-      // the pointer was.
+      // `cancelled` says this drag was abandoned rather than released — see
+      // cancelActiveCardDrag, which is the one caller that has no event of its
+      // own to speak for it.
       const onUp = (ue: PointerEvent, cancelled = false) => {
         // Same reason as onMove: a second finger lifting off the card is not
         // this drag ending. Skipped when cancelActiveCardDrag calls in, which
-        // has no event of its own and passes the drag's own id deliberately.
+        // passes the drag's own id deliberately.
         if (ue.pointerId !== captureId) return;
+        // Only a real release ends the drag *somewhere*. Everything else is
+        // the gesture being taken away mid-flight: a second finger arriving,
+        // or the browser itself claiming the touch — which iPadOS does the
+        // moment a drag begins inside a scrolling region, and a storyboard's
+        // shot strip is one. Both arrive as pointercancel, whose coordinates
+        // are worthless: the synthetic one has none and WebKit reports (0, 0).
+        // Resolving the drag against them put the card at minus the grab point
+        // in board units — reported as a storyboard "zipping somewhere else on
+        // the canvas really quickly" when dragged by its body, while its
+        // header, with no scroll container under it and so no cancel, dragged
+        // normally.
+        const released = !cancelled && ue.type !== 'pointercancel';
         this.cancelActiveCardDrag = null;
         el.removeEventListener('pointermove', onMove);
         el.removeEventListener('pointerup', onUp);
@@ -1415,19 +1435,54 @@ export const canvasMethods = {
         // Harmless when they were never added (the non-video path).
         activeDocument.removeEventListener('pointerup', onUp);
         activeDocument.removeEventListener('pointercancel', onUp);
-        if (moveFramePending) { window.cancelAnimationFrame(moveFrameId); latestX = ue.clientX; latestY = ue.clientY; flushMoveFrame(); }
+        // A pending frame has to be unscheduled either way — it must never
+        // fire after the drag is over. A release then flushes it once more at
+        // the release position, so the card lands exactly under the finger
+        // instead of one frame behind it. A cancel flushes nothing: its
+        // coordinates are unusable, and the stand-down below is putting the
+        // cards back regardless.
+        if (moveFramePending) {
+          window.cancelAnimationFrame(moveFrameId);
+          if (released) { latestX = ue.clientX; latestY = ue.clientY; flushMoveFrame(); }
+        }
         if (hoveredCardId) this.cardEls.get(hoveredCardId)?.removeClass('is-kanban-drop-target');
         this.clearTrashHover();
-        // A cancelled drag drops nowhere. Without this it would be judged
-        // against the synthetic event's coordinates, which are (0, 0) — and
-        // whatever sits at the origin would silently swallow the card.
-        const trashing = !cancelled && dragMoved && this.isOverTrash(ue.clientX, ue.clientY);
+        // A cancelled drag drops nowhere — not on the trash, not into a
+        // container. Judged against a cancel's coordinates instead, whatever
+        // sits at the origin would silently swallow the card.
+        const trashing = released && dragMoved && this.isOverTrash(ue.clientX, ue.clientY);
         // No settle animation when the card is about to be absorbed into a
         // kanban/column container or dropped on the trash — its element gets
         // removed immediately, so animating it would just flash. Settle only
         // on a normal canvas drop.
-        const absorbing = !cancelled && (!!(dragMoved && hoveredCardId) || trashing);
+        const absorbing = released && (!!(dragMoved && hoveredCardId) || trashing);
         endLift(dragMoved && !absorbing);
+        // The gesture turned out to be a pinch or a scroll, so as far as the
+        // board is concerned the drag never happened: put the cards back and
+        // drop the undo entry crossing the threshold pushed, rather than
+        // leaving them nudged a few pixels with a no-op undo to step through.
+        // The marquee stands down the same way, discarding its box outright.
+        if (!released) {
+          if (dragMoved) {
+            for (const [id, start] of startPos) {
+              const c = dragCardsById.get(id); const cel = this.cardEls.get(id);
+              if (!c || !cel) continue;
+              c.x = start.x; c.y = start.y;
+              cel.style.left = `${c.x}px`; cel.style.top = `${c.y}px`;
+              this.updateConnectionsForCard(id);
+            }
+            // Guarded rather than popped outright: only unwind the entry this
+            // drag itself pushed, never someone else's if anything managed to
+            // push in between.
+            if (this.undoStack.length === undoDepth) {
+              this.undoStack.pop();
+              this.redoStack = redoBefore;
+              this.refreshUndoRedoButtons();
+            }
+            this.contextBar?.reposition();
+          }
+          return;
+        }
         // Pressed the video overlay and let go without dragging — that's the
         // "Click to play or pause" the overlay's tooltip promises.
         if (onYouTubeOverlay && !dragMoved) toggleYouTubePlayback(el);

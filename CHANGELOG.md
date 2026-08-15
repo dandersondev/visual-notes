@@ -2,6 +2,13 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.2.4
+
+### Fixed
+- **Dragging a Storyboard by its body no longer throws it across the board.** On iPad, grabbing a Storyboard anywhere below its title sent it flying to a distant spot, while grabbing the title dragged it normally. The body is the scrolling shot strip, and a touch that starts in a scrolling area is taken over by the browser part-way through — which left the drag resolving against a position of nowhere. Any card whose drag is interrupted this way now simply returns to where it started, undisturbed, and the interrupted drag no longer leaves an undo step that restores nothing.
+- **Storyboard shot strips can still be scrolled with a finger, and the card still dragged.** A filmstrip scrolls sideways, so dragging its body downwards moves the card; a grid scrolls downwards, so dragging sideways moves the card. Neither view puts a shot out of reach on a tablet.
+- **A pinch that begins on a card now leaves the card exactly where it was.** 1.2.3 stood the drag down for the zoom but left the card wherever the pinch had started from; the zoom is now the only thing that happens.
+
 ## 1.2.3
 
 ### Fixed

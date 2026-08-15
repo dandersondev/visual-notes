@@ -1734,8 +1734,10 @@ describe('UI smoke: a second finger cannot hijack a card drag', () => {
     el.dispatchEvent(pointer('pointermove', 500, 500, { pointerType: 'touch', pointerId: 1 }));
 
     expect(renderer.cancelActiveCardDrag).toBeNull();
-    expect(board.cards[0].x).toBe(140);
-    expect(board.cards[0].y).toBe(132);
+    // Back at its pre-drag position, not left where the pinch happened to
+    // start: the gesture turned out to be a zoom, so no drag took place.
+    expect(board.cards[0].x).toBe(100);
+    expect(board.cards[0].y).toBe(100);
   });
 
   it('does not bin the card when the drag is cancelled', () => {
@@ -1747,6 +1749,136 @@ describe('UI smoke: a second finger cannot hijack a card drag', () => {
     secondFingerLands(renderer);
 
     expect(board.cards).toHaveLength(1);
+  });
+
+  it('leaves the undo history exactly as it found it', () => {
+    // Crossing the drag threshold pushes an undo entry. A drag that then gets
+    // taken away has to unwind it, or the next Ctrl+Z is a step that restores
+    // nothing — and the redo it wiped on the way in has to come back too.
+    const { renderer, board, el } = dragging();
+    el.dispatchEvent(pointer('pointerup', 240, 232, { pointerType: 'touch', pointerId: 1, buttons: 0 }));
+    renderer.undo();                      // a completed move, undone: real redo
+    const undoDepth = renderer.undoStack.length;
+    const redoDepth = renderer.redoStack.length;
+    expect(redoDepth).toBeGreaterThan(0);
+
+    // undo() rebuilds the cards, so the element from before it is stale.
+    const el2 = renderer.cardEls.get(board.cards[0].id)!;
+    el2.setPointerCapture = () => {}; el2.releasePointerCapture = () => {};
+    el2.dispatchEvent(pointer('pointerdown', 200, 200, { pointerType: 'touch', pointerId: 1 }));
+    el2.dispatchEvent(pointer('pointermove', 240, 232, { pointerType: 'touch', pointerId: 1 }));
+    secondFingerLands(renderer);
+
+    expect(renderer.undoStack).toHaveLength(undoDepth);
+    expect(renderer.redoStack).toHaveLength(redoDepth);
+  });
+});
+
+// The follow-up report: a storyboard dragged by its *title* moved normally,
+// but dragged by its *body* it "zips somewhere else on the canvas really
+// quickly". The body is the shot strip — a scroll container — and iPadOS
+// claims a touch that starts in one, firing pointercancel. onUp flushed the
+// pending move frame at the terminating event's coordinates unconditionally,
+// and a cancel's are (0, 0), which resolves to minus the grab point in board
+// units. The header has no scroll container under it, so it never cancelled.
+describe('UI smoke: a cancelled card drag never lands on the cancel coordinates', () => {
+  // A deferred rAF is the whole point here: the bug needs a move frame still
+  // pending when the cancel arrives. The synchronous stand-in used above would
+  // have flushed it already and hidden the defect. cancelAnimationFrame is
+  // honoured too, so "the frame was dropped" is a real assertion rather than a
+  // property of the harness.
+  let realRaf: typeof window.requestAnimationFrame;
+  let realCancel: typeof window.cancelAnimationFrame;
+  let queued: Map<number, FrameRequestCallback>;
+  beforeEach(() => {
+    realRaf = window.requestAnimationFrame;
+    realCancel = window.cancelAnimationFrame;
+    queued = new Map();
+    let nextId = 1;
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) => { const id = nextId++; queued.set(id, cb); return id; }) as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = ((id: number) => { queued.delete(id); }) as typeof window.cancelAnimationFrame;
+  });
+  afterEach(() => { window.requestAnimationFrame = realRaf; window.cancelAnimationFrame = realCancel; });
+  function runFrames(): void {
+    const cbs = [...queued.values()];
+    queued.clear();
+    for (const cb of cbs) cb(0);
+  }
+
+  function dragging() {
+    const sticky: StickyCard = { id: 's1', kind: 'sticky', x: 100, y: 100, w: 240, h: 160, text: 'hi', color: '#fff' };
+    const s = setup([sticky]);
+    const el = s.renderer.cardEls.get('s1')!;
+    el.setPointerCapture = () => {};
+    el.releasePointerCapture = () => {};
+    el.dispatchEvent(pointer('pointerdown', 200, 200, { pointerType: 'touch', pointerId: 1 }));
+    el.dispatchEvent(pointer('pointermove', 240, 232, { pointerType: 'touch', pointerId: 1 }));
+    return { ...s, el };
+  }
+
+  it('ignores a pointercancel reporting (0, 0) with a move frame still pending', () => {
+    const { board, el } = dragging();
+    expect(board.cards[0].x).toBe(100); // the move is batched, not applied yet
+
+    // WebKit's pointercancel: real event, no usable position.
+    el.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 1, clientX: 0, clientY: 0 }));
+
+    // Before the fix: x = 100 + (0 - 200) = -100, y = 100 + (0 - 200) = -100 —
+    // across the board and off the top-left, in a direction nothing moved in.
+    expect(board.cards[0].x).toBe(100);
+    expect(board.cards[0].y).toBe(100);
+  });
+
+  it('still lands on the release coordinates when the pointer is genuinely lifted', () => {
+    // The same flush is what makes a normal drop land exactly under the
+    // finger rather than one frame behind it — only cancels are distrusted.
+    const { board, el } = dragging();
+
+    el.dispatchEvent(pointer('pointerup', 264, 264, { pointerType: 'touch', pointerId: 1, buttons: 0 }));
+
+    expect(board.cards[0].x).toBe(164);
+    expect(board.cards[0].y).toBe(164);
+  });
+
+  it('drops the queued frame so it cannot fire after the drag is over', () => {
+    const { board, el } = dragging();
+    el.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 1, clientX: 0, clientY: 0 }));
+
+    // A frame escaping the cancel would move the card again after it had
+    // already been put back — the cancel has to unschedule it, not just
+    // ignore it.
+    runFrames();
+
+    expect(board.cards[0].x).toBe(100);
+    expect(board.cards[0].y).toBe(100);
+  });
+});
+
+// Which axis the shot strip concedes to the browser is what decides whether a
+// body drag on a tablet moves the card or scrolls the shots. It is matched to
+// the view by class name, so a rename on either side would quietly concede the
+// wrong one — and the symptom (a drag that stands down instead of dragging) is
+// invisible on a desktop, where nothing claims a mouse for scrolling.
+describe('UI smoke: a storyboard concedes only the axis its shots scroll in', () => {
+  const css = readFileSync(join(__dirname, '..', 'styles.css'), 'utf8');
+
+  function preview(container: HTMLElement): HTMLElement {
+    return container.querySelector<HTMLElement>('.visual-notes-storyboard-preview')!;
+  }
+
+  it('names the view it is rendering on the strip itself', () => {
+    const { renderer, container } = setup([]);
+    renderer.addStoryboardCardAt(0, 0);
+    expect(preview(container).classList.contains('is-filmstrip')).toBe(true);
+
+    // The card's own view toggle — the only way a user reaches grid view.
+    container.querySelector<HTMLElement>('[aria-label="Use grid preview"]')!.click();
+    expect(preview(container).classList.contains('is-grid')).toBe(true);
+  });
+
+  it('concedes sideways for a filmstrip and downwards for a grid', () => {
+    expect(/\.visual-notes-storyboard-preview\.is-filmstrip\s*\{[^}]*touch-action:\s*pan-x/.test(css)).toBe(true);
+    expect(/\.visual-notes-storyboard-preview\.is-grid\s*\{[^}]*touch-action:\s*pan-y/.test(css)).toBe(true);
   });
 });
 

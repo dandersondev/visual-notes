@@ -8052,7 +8052,22 @@ input.visual-notes-calendar-month-input {
 .visual-notes-storyboard-preview.is-size-sm { --vn-storyboard-shot-width: 150px; }
 .visual-notes-storyboard-preview.is-size-md { --vn-storyboard-shot-width: 220px; }
 .visual-notes-storyboard-preview.is-size-lg { --vn-storyboard-shot-width: 320px; }
-.visual-notes-storyboard-preview.is-grid { display: flex; flex-wrap: wrap; align-content: flex-start; align-items: flex-start; }
+/* The shot strip is a scroll container, and on a touch device the browser
+   claims any touch that starts in one for its own scrolling — it fires
+   pointercancel and stops sending pointermove, so the card drag that began
+   there is taken away mid-gesture. Reported on iPad as a storyboard dragged by
+   its body "zipping somewhere else on the canvas", while its header dragged
+   fine; the canvas now stands that drag down cleanly (see onUp in
+   freeform-view-canvas.ts), but standing down still isn't dragging.
+
+   Conceding only the axis each view actually scrolls in leaves the other one
+   for the card: a filmstrip scrolls sideways, so a downward drag moves the
+   card; a grid scrolls down, so a sideways drag does. Neither view loses a
+   shot to unreachability, which is what a flat touch-action: none here would
+   have cost. A strip short enough not to overflow has no scroll to claim, so
+   it drags in every direction. */
+.visual-notes-storyboard-preview.is-filmstrip { touch-action: pan-x; }
+.visual-notes-storyboard-preview.is-grid { display: flex; flex-wrap: wrap; align-content: flex-start; align-items: flex-start; touch-action: pan-y; }
 .visual-notes-storyboard-preview.is-grid.is-size-sm { --vn-storyboard-grid-basis: 110px; }
 .visual-notes-storyboard-preview.is-grid.is-size-md { --vn-storyboard-grid-basis: 160px; }
 .visual-notes-storyboard-preview.is-grid.is-size-lg { --vn-storyboard-grid-basis: 240px; }
