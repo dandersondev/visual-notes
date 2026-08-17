@@ -8316,9 +8316,16 @@ button.visual-notes-collaboration-colour-swatch.is-selected {
   --visual-notes-collaborator-color: var(--interactive-accent);
   position: absolute;
   z-index: 100000;
+  top: 0;
+  left: 0;
   width: 1px;
   height: 1px;
   pointer-events: none;
+  /* Positioned by transform, not left/top, so moving a cursor neither forces a
+     synchronous layout nor repaints through the parent. will-change keeps it
+     on its own compositor layer: on iOS, moving this element by left/top left
+     paint trails behind it, which read as ghost cursors piling up. */
+  will-change: transform;
 }
 
 .visual-notes-remote-cursor-tip {

@@ -2,6 +2,18 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.3.6
+
+### Changed
+- **Hosting now restarts when you reopen Obsidian.** Previously the room's saved data survived a restart but the room itself did not, so reopening a shared board just failed to connect until you went back into settings and pressed Start hosting. If you were hosting when Obsidian closed, hosting resumes on launch. Pressing **Stop hosting** means stopped: it stays that way until you start it again.
+  - Resuming waits for your network. A plugin loads a second or two after Obsidian starts, while a VPN such as Tailscale usually takes longer, so the address to host on is often not there yet on the first look. Visual Notes now waits up to half a minute for it to appear.
+  - If hosting cannot be resumed it says so, and why, rather than leaving you to discover it when a board will not connect.
+
+### Fixed
+- **Arrows connected to an image or video sat away from the card when a board was opened**, and only snapped back once the card was resized. Images and videos settle to their true proportions once they finish loading, a moment after the board has already drawn its arrows, and the arrows were not told. They are now redrawn as soon as the card takes its final size, so a board looks right the moment it opens.
+- **Remote cursors lagged and left ghosts behind, worst on iPad.** Every collaborator's cursor was thrown away and rebuilt each time their position arrived, many times a second, and moved in a way that forced the whole board to re-lay-out on each update. Cursors are now reused and moved on their own layer, which removes the stalling and the trail of stuck cursors that built up until something else redrew the screen.
+- **A board that could not reach its room said only "WebSocket closed (1006)".** It now names the address it tried and says what to check — that the host has Obsidian open with hosting started, and that both devices are on the same private network. Losing a connection that was working is reported differently from never reaching the host at all, and says it is reconnecting.
+
 ## 1.3.5
 
 ### Fixed

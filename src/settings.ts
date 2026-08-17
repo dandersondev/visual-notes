@@ -851,7 +851,8 @@ export class VisualNotesSettingsTab extends PluginSettingTab {
     }
     const status = this.plugin.privateNetworkHostStatus();
     setting.setDesc(status.state === 'running' && status.address
-      ? `Running on ${status.address.address}:${status.port}. Keep Obsidian open while others collaborate.`
+      ? `Running on ${status.address.address}:${status.port}. Keep Obsidian open while others collaborate. `
+        + 'Hosting restarts automatically the next time you open Obsidian, until you stop it here.'
       : status.state === 'error' ? `Host stopped: ${status.error ?? 'Unknown error'}`
       : status.state === 'starting' ? 'Starting private collaboration host…'
       : 'Runs the room server on this computer. Board data and shared media stay with the host.');
@@ -900,8 +901,9 @@ export class VisualNotesSettingsTab extends PluginSettingTab {
     if (status.state === 'running' || status.state === 'starting') {
       setting.addButton(button => button.setButtonText('Stop hosting').setWarning().onClick(async () => {
         button.setDisabled(true);
-        await this.plugin.stopPrivateNetworkHost();
-        new Notice('Private collaboration host stopped.');
+        // Stopping deliberately, so it stays stopped across restarts.
+        await this.plugin.stopPrivateNetworkHostingForGood();
+        new Notice('Private collaboration host stopped. It will stay stopped until you start it again.');
         this.refresh();
       }));
     } else {

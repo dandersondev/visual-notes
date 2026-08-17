@@ -269,20 +269,35 @@ export const collaborationMethods = {
       })(); });
     }
 
-    for (const element of this.collaborationCursorEls.values()) element.remove();
-    this.collaborationCursorEls.clear();
+    // Cursors are reused, not rebuilt. Presence arrives many times a second,
+    // and tearing down three elements per collaborator per update was enough
+    // DOM churn to show as cursor lag. Position moves through `transform`
+    // rather than left/top: left/top forces a synchronous layout on every
+    // update (the "Forced reflow" console violation came from here), and on
+    // iOS an absolutely positioned element moved that way -- with a
+    // drop-shadow filter on its tip -- leaves paint trails, which is the
+    // ghosting where old cursors pile up until something else repaints.
+    //
+    // Selection outlines still rebuild: they live inside card elements, which
+    // the board re-render replaces, so a reused outline would be orphaned.
     for (const element of this.collaborationSelectionEls) element.remove();
     this.collaborationSelectionEls = [];
+    const seen = new Set<string>();
     for (const person of state.collaborators) {
       if (person.clientId === this.collaborationConfig.identity.clientId) continue;
       if (person.cursor) {
-        const cursor = this.inner.createDiv('visual-notes-remote-cursor');
-        cursor.style.left = `${person.cursor.x}px`;
-        cursor.style.top = `${person.cursor.y}px`;
+        seen.add(person.clientId);
+        let cursor = this.collaborationCursorEls.get(person.clientId);
+        if (!cursor) {
+          cursor = this.inner.createDiv('visual-notes-remote-cursor');
+          cursor.createDiv('visual-notes-remote-cursor-tip');
+          cursor.createDiv('visual-notes-remote-cursor-name');
+          this.collaborationCursorEls.set(person.clientId, cursor);
+        }
+        cursor.style.transform = `translate3d(${person.cursor.x}px, ${person.cursor.y}px, 0)`;
         cursor.style.setProperty('--visual-notes-collaborator-color', person.color);
-        cursor.createDiv('visual-notes-remote-cursor-tip');
-        cursor.createDiv('visual-notes-remote-cursor-name').setText(person.displayName);
-        this.collaborationCursorEls.set(person.clientId, cursor);
+        const name = cursor.querySelector<HTMLElement>('.visual-notes-remote-cursor-name');
+        if (name && name.textContent !== person.displayName) name.setText(person.displayName);
       }
       person.selectedIds.forEach((id, index) => {
         const card = this.cardEls.get(id);
@@ -293,6 +308,13 @@ export const collaborationMethods = {
         outline.setAttribute('aria-label', `Selected by ${person.displayName}`);
         this.collaborationSelectionEls.push(outline);
       });
+    }
+    // Whoever stopped pointing, or left the room, loses their cursor. Without
+    // this the reused elements would be the thing that piles up.
+    for (const [clientId, element] of this.collaborationCursorEls) {
+      if (seen.has(clientId)) continue;
+      element.remove();
+      this.collaborationCursorEls.delete(clientId);
     }
   },
 

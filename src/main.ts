@@ -12,6 +12,11 @@ import { ExplorerDecorator } from './explorer-decor';
 // Long enough that clipping several pages in a row costs one board write
 // rather than one each, short enough that a single clip still feels immediate.
 const CLIP_IMPORT_DEBOUNCE_MS = 800;
+// Roughly 30 seconds of waiting for a virtual network to finish connecting
+// after Obsidian starts, checked often enough that a fast one resumes almost
+// immediately. Tailscale is routinely not up when the plugin loads.
+const HOST_RESUME_ATTEMPTS = 15;
+const HOST_RESUME_RETRY_MS = 2_000;
 import { normalizeSettings } from './settings-validate';
 import { ensureCollaborationIdentity } from './collaboration-identity';
 import { CreateBoardModal, TemplatePickerModal, TemplateChoice } from './create-board-modal';
@@ -100,6 +105,10 @@ export default class VisualNotesPlugin extends Plugin {
     this.settings.collaborationPrivateNetworkHostAddress = address.address;
     this.settings.collaborationPrivateNetworkUrl = `ws://${address.address.includes(':') ? `[${address.address}]` : address.address}:${port}`;
     this.settings.collaborationTransport = 'private-network';
+    // Records that the user wants this device hosting, so relaunching Obsidian
+    // brings the room back. Cleared only by stopHosting(), never by onunload:
+    // quitting is not the same as deciding to stop.
+    this.settings.collaborationPrivateNetworkHosting = true;
     await this.saveSettings();
     // Vault-relative: both live inside the vault, so the runtime creates and
     // writes them through Obsidian's adapter rather than node:fs, and resolves
@@ -116,7 +125,73 @@ export default class VisualNotesPlugin extends Plugin {
     });
   }
 
+  /** Shuts the server down without touching the user's intent to host. */
   async stopPrivateNetworkHost(): Promise<void> { await this.collaborationHost?.stop(); }
+
+  /** The user chose to stop. Do not bring it back on the next launch. */
+  async stopPrivateNetworkHostingForGood(): Promise<void> {
+    this.settings.collaborationPrivateNetworkHosting = false;
+    await this.saveSettings();
+    await this.stopPrivateNetworkHost();
+  }
+
+  /**
+   * Brings hosting back when Obsidian reopens, so a host's own room is
+   * reachable again without a trip to settings.
+   *
+   * It waits, because a plugin loads within a second or two of Obsidian
+   * starting and a virtual network usually does not: Tailscale and the like
+   * bring their interface up shortly afterwards, so the recorded address is
+   * routinely missing on the first look and present a few seconds later.
+   * Giving up on that first look is why the first version of this appeared to
+   * do nothing at all.
+   *
+   * And it reports failure. Staying quiet was the wrong instinct -- the user
+   * explicitly asked this device to host, so hosting not coming back is
+   * something they need told, not something to leave them to infer from a
+   * board that will not connect.
+   */
+  private async resumePrivateNetworkHost(): Promise<void> {
+    if (!this.settings.collaborationPrivateNetworkHosting) return;
+    if (!Platform.isDesktopApp || !this.supportsCollaboration()) return;
+    if (!(this.app.vault.adapter instanceof FileSystemAdapter)) return;
+    const wanted = this.settings.collaborationPrivateNetworkHostAddress;
+    if (!wanted) return;
+    try {
+      const address = await this.awaitHostAddress(wanted);
+      if (!address) {
+        new Notice(
+          `Visual Notes could not resume hosting: the network address ${wanted} is not available on this device. `
+          + 'If your VPN or LAN connects later, start hosting again from Settings → Visual Notes.',
+          12_000,
+        );
+        return;
+      }
+      const status = await this.startPrivateNetworkHost(address);
+      if (status.state === 'running') {
+        new Notice(`Visual Notes is hosting your collaboration room again on ${address.address}:${status.port}.`);
+      } else {
+        new Notice(`Visual Notes could not resume hosting: ${status.error ?? 'the host did not start.'}`, 12_000);
+      }
+    } catch (error) {
+      console.error('Visual Notes: could not resume collaboration hosting', error);
+      new Notice(
+        `Visual Notes could not resume hosting: ${error instanceof Error ? error.message : 'unknown error'}`,
+        12_000,
+      );
+    }
+  }
+
+  /** Polls for the recorded interface while a VPN or LAN finishes coming up. */
+  private async awaitHostAddress(wanted: string): Promise<CollaborationHostAddress | undefined> {
+    for (let attempt = 0; attempt < HOST_RESUME_ATTEMPTS; attempt++) {
+      const addresses = await this.privateNetworkHostAddresses();
+      const address = addresses.find(candidate => candidate.address === wanted);
+      if (address) return address;
+      await new Promise(resolve => window.setTimeout(resolve, HOST_RESUME_RETRY_MS));
+    }
+    return undefined;
+  }
 
   usesWebSocketCollaboration(): boolean {
     // The single runtime choke point. Opening a board builds the collaboration
@@ -353,6 +428,9 @@ export default class VisualNotesPlugin extends Plugin {
   override async onload(): Promise<void> {
     await this.loadSettings();
     this.applyCanvasAppearanceSettings();
+    // Deliberately not awaited: starting the server writes and loads a bundle,
+    // and onload blocks Obsidian's startup.
+    void this.resumePrivateNetworkHost();
     // Hosted account sign-in is a dormant foundation, not a shipped feature,
     // so this callback has no reachable caller. Registering it anyway would
     // leave any web page able to drive obsidian://visual-notes-auth into the

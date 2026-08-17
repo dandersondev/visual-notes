@@ -82,6 +82,12 @@ export interface VisualNotesSettings {
   collaborationPrivateNetworkToken?: string; // legacy plaintext migration only; removed on load
   collaborationPrivateNetworkPort?: number;
   collaborationPrivateNetworkHostAddress?: string;
+  /**
+   * Whether the user wants this device hosting. Set when hosting starts and
+   * cleared only when they stop it themselves -- quitting Obsidian must not
+   * clear it, or the room would not come back on relaunch.
+   */
+  collaborationPrivateNetworkHosting?: boolean;
   collaborationAuthentication?: 'development' | 'oidc';
   collaborationOidcIssuer?: string;
   collaborationOidcClientId?: string;

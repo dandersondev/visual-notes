@@ -103,6 +103,61 @@ describe('WebSocketCollaborationTransport', () => {
     await result.connection.disconnect();
   });
 
+  // A refused connection closes with 1006 and an empty reason, so the only
+  // thing the user got was "WebSocket closed (1006)." The commonest cause is
+  // simply that the host is not running -- which, before hosting resumed on
+  // launch, was what happened every time anyone reopened Obsidian.
+  it('explains an unreachable host rather than reporting a close code', async () => {
+    const sockets: FakeSocket[] = [];
+    const handlers: CollaborationTransportHandlers = {
+      onOperation: vi.fn(), onPresence: vi.fn(), onConnectionState: vi.fn(),
+    };
+    const transport = new WebSocketCollaborationTransport({
+      url: 'ws://100.120.81.33:8787', token: 'token', compatibility, socketFactory: () => {
+        const socket = new FakeSocket(); sockets.push(socket); return socket;
+      }, heartbeatMs: 60_000, reconnectDelaysMs: [10_000],
+    });
+    void transport.connect({
+      roomId: 'room', boardId: 'board', initialBoard: board,
+      identity: { clientId: 'client', displayName: 'Alice', color: '#abcdef' },
+    }, handlers).catch(() => { /* never reaches the host */ });
+
+    sockets[0].close(1006, '');
+
+    const reason = vi.mocked(handlers.onConnectionState!).mock.calls
+      .filter(([status]) => status === 'disconnected').map(([, text]) => text).join(' ');
+    expect(reason).toContain('100.120.81.33:8787');
+    expect(reason).toMatch(/hosting started/);
+    expect(reason).not.toMatch(/WebSocket closed/);
+  });
+
+  it('distinguishes losing a live connection from never reaching the host', async () => {
+    const sockets: FakeSocket[] = [];
+    const handlers: CollaborationTransportHandlers = {
+      onOperation: vi.fn(), onPresence: vi.fn(), onConnectionState: vi.fn(),
+    };
+    const transport = new WebSocketCollaborationTransport({
+      url: 'ws://100.120.81.33:8787', token: 'token', compatibility, socketFactory: () => {
+        const socket = new FakeSocket(); sockets.push(socket); return socket;
+      }, heartbeatMs: 60_000, reconnectDelaysMs: [10_000],
+    });
+    const connecting = transport.connect({
+      roomId: 'room', boardId: 'board', initialBoard: board,
+      identity: { clientId: 'client', displayName: 'Alice', color: '#abcdef' },
+    }, handlers);
+    sockets[0].open();
+    sockets[0].receive({ type: 'joined', protocolVersion: 1, snapshot: snapshot() });
+    await connecting;
+    vi.mocked(handlers.onConnectionState!).mockClear();
+
+    sockets[0].close(1006, '');
+
+    const reason = String(vi.mocked(handlers.onConnectionState!).mock.calls
+      .find(([status]) => status === 'disconnected')?.[1]);
+    expect(reason).toMatch(/Lost the connection/);
+    expect(reason).toMatch(/Reconnecting/);
+  });
+
   it('still treats an error before joining as fatal', async () => {
     const sockets: FakeSocket[] = [];
     const handlers: CollaborationTransportHandlers = {

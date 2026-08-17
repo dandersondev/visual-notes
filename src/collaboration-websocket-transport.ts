@@ -89,6 +89,9 @@ class ManagedWebSocketConnection implements CollaborationConnection {
   readonly clientId: string;
   private socket?: CollaborationWebSocket;
   private joined = false;
+  /** True once this transport has ever completed a join, so a failure can tell
+   *  "never reached the host" apart from "lost a working connection". */
+  private joinedOnce = false;
   private closedByUser = false;
   private fatal = false;
   private reconnectAttempt = 0;
@@ -179,7 +182,7 @@ class ManagedWebSocketConnection implements CollaborationConnection {
       this.rejectPending('Collaboration connection was interrupted.');
       if (event.code === 4001 || event.code === 4003 || event.code === 4004) this.fatal = true;
       if (this.closedByUser) return;
-      const reason = event.reason || `WebSocket closed (${event.code}).`;
+      const reason = event.reason || unreachableHostReason(event.code, this.url, this.joinedOnce);
       this.handlers.onConnectionState?.('disconnected', reason);
       if (this.fatal) this.rejectInitial(new Error(reason));
       else this.scheduleReconnect();
@@ -216,6 +219,7 @@ class ManagedWebSocketConnection implements CollaborationConnection {
     if (message.type === 'joined') {
       const reconnect = this.initialSettled;
       this.joined = true;
+      this.joinedOnce = true;
       this.reconnectAttempt = 0;
       this.startHeartbeat();
       if (reconnect) this.handlers.onSnapshot?.(message.snapshot);
@@ -312,4 +316,26 @@ function socketMessageText(value: unknown): string | undefined {
   if (value instanceof ArrayBuffer) return new TextDecoder().decode(value);
   if (ArrayBuffer.isView(value)) return new TextDecoder().decode(value);
   return undefined;
+}
+
+/**
+ * A refused connection closes with 1006 and an empty reason, so the only thing
+ * the user saw was "WebSocket closed (1006)." -- which says nothing about the
+ * commonest cause by far: the host is not running. Hosting has to be started
+ * on the host's machine, and before 1.3.6 it did not survive an Obsidian
+ * restart, so this was most people's first experience of reopening a room.
+ */
+function unreachableHostReason(code: number, url: string, joinedOnce: boolean): string {
+  if (code !== 1006) return `WebSocket closed (${code}).`;
+  const host = safeHost(url);
+  if (joinedOnce) {
+    return `Lost the connection to the collaboration host${host ? ` at ${host}` : ''}. `
+      + 'It may have gone to sleep, quit Obsidian, or left the network. Reconnecting when it returns.';
+  }
+  return `Could not reach the collaboration host${host ? ` at ${host}` : ''}. `
+    + 'Check that the host has Obsidian open and hosting started, and that both devices are on the same private network.';
+}
+
+function safeHost(url: string): string | undefined {
+  try { return new URL(url).host; } catch { return undefined; }
 }

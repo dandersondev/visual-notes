@@ -130,6 +130,11 @@ export const cardsMediaMethods = {
         if (correctH !== card.h) {
           card.h = correctH;
           el.style.height = `${correctH}px`;
+          // Connections anchor to the stored card size, and this runs when the
+          // image finishes loading -- after the board has already drawn them
+          // against the old height. Without this they sit visibly off the card
+          // until something else moves it, which is why resizing "fixed" it.
+          this.updateConnectionsForCard(card.id);
           this.scheduleSave();
         }
       }
@@ -405,6 +410,9 @@ export const cardsMediaMethods = {
         if (w === card.w && h === card.h) return; // 16:9 already lands here
         card.w = w; card.h = h;
         if (cardEl) { cardEl.style.width = `${w}px`; cardEl.style.height = `${h}px`; }
+        // Same reason as the image path: this lands after metadata loads, once
+        // connections have already been drawn against the placeholder size.
+        this.updateConnectionsForCard(card.id);
         this.scheduleSave();
         return;
       }
@@ -416,6 +424,7 @@ export const cardsMediaMethods = {
       if (h < 1 || Math.abs(h - (card.h ?? VIDEO_DEFAULT_H)) < 2) return;
       card.h = h;
       if (cardEl) cardEl.style.height = `${h}px`;
+      this.updateConnectionsForCard(card.id);
       this.scheduleSave();
     });
 
