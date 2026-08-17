@@ -31,8 +31,9 @@ import {
 import { CollaborationAssetClient } from './collaboration-assets';
 import { CollaborationAuthClient, type CollaborationAuthStatus } from './collaboration-auth';
 import {
-  collaborationSecretStore, decodePrivateNetworkInvite, encodePrivateNetworkInvite, generatePrivateNetworkServerToken,
-  isPrivateNetworkCollaborationUrl, PRIVATE_NETWORK_SECRET_ID, type CollaborationSecretStore,
+  canUsePrivateNetworkCollaboration, collaborationSecretStore, decodePrivateNetworkInvite, encodePrivateNetworkInvite,
+  generatePrivateNetworkServerToken, isUsablePrivateNetworkSecret,
+  PRIVATE_NETWORK_SECRET_ID, type CollaborationSecretStore,
 } from './collaboration-private-network';
 import collaborationServerSource from 'visual-notes-collaboration-server-source';
 import {
@@ -63,8 +64,13 @@ export default class VisualNotesPlugin extends Plugin {
     return store;
   }
 
+  /** The stored secret, or undefined. Never throws -- see usesWebSocketCollaboration. */
+  private privateNetworkSecret(): string | undefined {
+    return collaborationSecretStore(this.app)?.getSecret(PRIVATE_NETWORK_SECRET_ID)?.trim() || undefined;
+  }
+
   hasPrivateNetworkServerSecret(): boolean {
-    return !!collaborationSecretStore(this.app)?.getSecret(PRIVATE_NETWORK_SECRET_ID)?.trim();
+    return isUsablePrivateNetworkSecret(this.privateNetworkSecret());
   }
 
   generatePrivateNetworkServerSecret(): void {
@@ -113,13 +119,17 @@ export default class VisualNotesPlugin extends Plugin {
   async stopPrivateNetworkHost(): Promise<void> { await this.collaborationHost?.stop(); }
 
   usesWebSocketCollaboration(): boolean {
-    // The single runtime choke point. A vault synced from a newer Obsidian
-    // arrives with collaboration already enabled in data.json; returning
-    // false here degrades the board to a local-only session instead of
-    // letting every room call reach requireSecretStore() and throw.
+    // The single runtime choke point. Opening a board builds the collaboration
+    // options eagerly, so anything this lets through must actually work --
+    // when it said yes without a stored secret, collaborationServiceToken()
+    // threw and took the whole board open down with it. That stranded every
+    // mobile device the moment the toggle was switched on, because mobile
+    // cannot host and so has no secret until it accepts an invitation.
     if (!this.supportsCollaboration()) return false;
     if (this.settings.collaborationTransport === 'private-network') {
-      return isPrivateNetworkCollaborationUrl(this.collaborationServerUrl());
+      return canUsePrivateNetworkCollaboration(
+        this.privateNetworkSecret(), this.collaborationServerUrl(),
+      );
     }
     if (this.settings.collaborationTransport !== 'websocket') return false;
     return isSafeCollaborationServerUrl(this.collaborationServerUrl());
@@ -279,8 +289,16 @@ export default class VisualNotesPlugin extends Plugin {
 
   private privateNetworkServerToken(): string {
     const token = this.requireSecretStore().getSecret(PRIVATE_NETWORK_SECRET_ID)?.trim();
-    if (!token || token.length < 24) throw new Error('Configure a private-network server secret of at least 24 characters.');
-    return token;
+    if (!isUsablePrivateNetworkSecret(token ?? undefined)) {
+      // Reached on a device that has collaboration on but has never obtained
+      // the shared secret. Telling a phone to "configure a secret" is useless
+      // -- it cannot host, so the only way it ever gets one is an invitation.
+      throw new Error(
+        'This device does not have the collaboration server secret yet. Join a room using a complete '
+        + 'invitation, or start hosting on a desktop device to create one.',
+      );
+    }
+    return token as string;
   }
 
   collaborationAuthStatus(): CollaborationAuthStatus {

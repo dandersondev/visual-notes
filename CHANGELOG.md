@@ -2,6 +2,15 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.3.4
+
+### Fixed
+- **Turning collaboration on stopped boards from opening.** Enabling the setting made every board on the device fail to open until it was turned off again. It affected any installation that had switched collaboration on without yet hosting a room or accepting an invitation — which is every phone and tablet, since those can join but cannot host. Boards now open normally and simply run as a local session until the device actually joins a room.
+- The collaboration bar no longer reports "Private network" while the board is in fact running locally.
+- A collaboration problem can no longer prevent a board from opening at all. If one occurs, the board opens without collaboration and explains what happened.
+- **Joining a room from a phone or tablet did nothing.** Pasting an invitation silently failed, because the controls for joining were switched off on exactly the devices that had not joined yet — and joining is how a device gets the credentials that would have switched them on. Mobile devices can now join a room by invitation, as intended.
+- When a device does not have the collaboration credentials yet, it now says so and explains how to get them, instead of reporting a setting the person is not able to change.
+
 ## 1.3.3
 
 Two more review findings cleared. No behaviour changes.

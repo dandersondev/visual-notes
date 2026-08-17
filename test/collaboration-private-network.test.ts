@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canUsePrivateNetworkCollaboration,
   collaborationSecretStore,
   decodePrivateNetworkInvite,
   encodePrivateNetworkInvite,
   generatePrivateNetworkServerToken,
   isPrivateNetworkCollaborationUrl,
+  isUsablePrivateNetworkSecret,
+  PRIVATE_NETWORK_SECRET_MIN_LENGTH,
 } from '../src/collaboration-private-network';
 
 describe('private-network collaboration', () => {
@@ -51,6 +54,45 @@ describe('private-network collaboration', () => {
   it('rejects short server secrets and malformed envelopes', () => {
     expect(() => encodePrivateNetworkInvite('ws://10.0.0.2:8787', 'short', 'VN2-ROOM')).toThrow(/24 characters/);
     expect(() => decodePrivateNetworkInvite('visual-notes-collab:v1:not-json')).toThrow(/invalid/i);
+  });
+});
+
+// Regression: switching collaboration on stopped every board from opening on
+// iPad. Enabling it forces the private-network transport, and the default
+// endpoint (ws://127.0.0.1:8787) is a perfectly valid private-network URL --
+// so the readiness gate said yes on URL alone, the board eagerly built its
+// collaboration options, and reading the server token threw because no secret
+// existed. Mobile cannot host, so it has no secret until it accepts an
+// invitation: every board on the device was dead until the toggle went off.
+describe('private-network readiness', () => {
+  const secret = 'a'.repeat(32);
+  const url = 'ws://100.90.80.70:8787';
+
+  it('is not ready without a secret, however valid the endpoint', () => {
+    expect(canUsePrivateNetworkCollaboration(undefined, 'ws://127.0.0.1:8787')).toBe(false);
+    expect(canUsePrivateNetworkCollaboration(undefined, url)).toBe(false);
+  });
+
+  it('is not ready with a secret too short for the server to accept', () => {
+    // The gate and the token reader used different rules -- non-empty here,
+    // 24 characters there -- so a short secret passed the gate and then threw.
+    expect(canUsePrivateNetworkCollaboration('short', url)).toBe(false);
+    expect(canUsePrivateNetworkCollaboration('   ', url)).toBe(false);
+    expect(isUsablePrivateNetworkSecret('short')).toBe(false);
+  });
+
+  it('is ready only when a usable secret and a private endpoint agree', () => {
+    expect(canUsePrivateNetworkCollaboration(secret, url)).toBe(true);
+    expect(canUsePrivateNetworkCollaboration(secret, 'ws://8.8.8.8:8787')).toBe(false);
+  });
+
+  it('accepts exactly the secret length the server enforces', () => {
+    expect(isUsablePrivateNetworkSecret('b'.repeat(PRIVATE_NETWORK_SECRET_MIN_LENGTH))).toBe(true);
+    expect(isUsablePrivateNetworkSecret('b'.repeat(PRIVATE_NETWORK_SECRET_MIN_LENGTH - 1))).toBe(false);
+    // The invite encoder rejects at the same boundary; if these ever diverge,
+    // a device can be "ready" and still fail to produce a usable invitation.
+    expect(() => encodePrivateNetworkInvite(url, 'b'.repeat(PRIVATE_NETWORK_SECRET_MIN_LENGTH), 'VN2-ROOM'))
+      .not.toThrow();
   });
 });
 

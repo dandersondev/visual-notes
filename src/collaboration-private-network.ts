@@ -10,6 +10,34 @@ const INVITE_PREFIX = 'visual-notes-collab:v1:';
 /** The SecretStorage entry holding the private-network server secret. */
 export const PRIVATE_NETWORK_SECRET_ID = 'visual-notes-collaboration-server';
 
+/**
+ * One definition, used by everything that decides whether a stored secret is
+ * usable. Two call sites previously disagreed -- one accepted any non-empty
+ * string, the other required this length -- so collaboration could report
+ * itself ready and then throw when the token was actually read.
+ */
+export const PRIVATE_NETWORK_SECRET_MIN_LENGTH = 24;
+
+/**
+ * Whether a live private-network session is possible right now.
+ *
+ * Enabling collaboration is not enough: a device also needs the shared server
+ * secret, which arrives either by hosting (desktop) or by accepting an
+ * invitation. A device that has done neither -- every mobile device before its
+ * first join -- has no secret, and the default loopback endpoint is a valid
+ * private-network URL, so URL validity alone wrongly reported "ready".
+ */
+export function canUsePrivateNetworkCollaboration(
+  secret: string | undefined,
+  serverUrl: string,
+): boolean {
+  return isUsablePrivateNetworkSecret(secret) && isPrivateNetworkCollaborationUrl(serverUrl);
+}
+
+export function isUsablePrivateNetworkSecret(secret: string | undefined): boolean {
+  return !!secret && secret.trim().length >= PRIVATE_NETWORK_SECRET_MIN_LENGTH;
+}
+
 /** The subset of Obsidian's SecretStorage that collaboration actually uses. */
 export interface CollaborationSecretStore {
   getSecret(id: string): string | null;

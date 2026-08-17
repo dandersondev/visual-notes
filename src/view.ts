@@ -4,6 +4,7 @@ import { Card, VisualNotesFile } from './file-types';
 import { readBoardFile, writeBoardFile, classifyCanvasFile, NATIVE_BAK_SUFFIX } from './file-io';
 import { GridRenderer } from './grid-view';
 import { FreeformRenderer } from './freeform-view';
+import type { FreeformCollaborationConfig } from './freeform-view';
 import { DEFAULT_PEN_DRAW_OPTIONS } from './pen-options-panel';
 import { ensureCollaborationIdentity } from './collaboration-identity';
 import { relinkBoardData } from './asset-manager';
@@ -120,6 +121,88 @@ export class VisualNotesView extends FileView {
       this.renderEmpty();
     }
     return Promise.resolve();
+  }
+
+
+  /**
+   * Collaboration is opt-in and experimental; it must never be able to stop a
+   * board opening. It could: these options are built eagerly, and a device
+   * with collaboration switched on but no server secret -- every mobile device
+   * before its first join, since mobile cannot host -- threw here and took the
+   * whole board down with it. usesWebSocketCollaboration() no longer lies
+   * about being ready, and this catch means the next thing that goes wrong
+   * costs the collaboration bar rather than the board.
+   */
+  private collaborationOptions(file: TFile): FreeformCollaborationConfig | undefined {
+    try {
+      return this.buildCollaborationOptions(file);
+    } catch (error) {
+      console.error('Visual Notes: collaboration could not start for this board.', error);
+      new Notice(
+        'Visual Notes: collaboration could not start, so this board opened without it. '
+        + (error instanceof Error ? error.message : 'Unknown error'),
+        10000,
+      );
+      return undefined;
+    }
+  }
+
+  private buildCollaborationOptions(file: TFile): FreeformCollaborationConfig {
+    const websocket = this.plugin.usesWebSocketCollaboration();
+    const room = websocket ? loadBoardRoom(window.localStorage, this.app.vault.getName(), file.path) : undefined;
+    const assetClient = websocket ? this.plugin.createCollaborationAssetClient() : undefined;
+    return {
+      transport: this.plugin.getCollaborationTransport(room),
+      identity: ensureCollaborationIdentity(
+        this.plugin.settings, undefined, window.localStorage, this.app.vault.getName()
+      ).identity,
+      // Driven by what the session actually is, not by what the setting asks
+      // for. A device with collaboration on but no secret yet falls back to a
+      // local session, and labelling that "Private network" told the user they
+      // were connected to something they were not.
+      label: !websocket ? 'Local session'
+        : this.plugin.settings.collaborationTransport === 'private-network' ? 'Private network'
+        : 'Development server',
+      room,
+      // Everything below is a lazy callback, invoked long after this object is
+      // built, and each re-reads plugin state when it runs. Gating them on
+      // `websocket` -- a snapshot of whether a live session was possible at
+      // render time -- was wrong, and specifically broke the one flow that
+      // exists to CHANGE that state: joining. A device with no server secret
+      // got joinRoom: undefined, and since the bar calls it optionally
+      // (`config.joinRoom?.(code)`), pasting an invitation did nothing at all,
+      // silently. That is every phone and tablet, which cannot host and so
+      // have no secret until an invitation gives them one.
+      //
+      // `websocket` now decides only the three eager values above: the initial
+      // transport, room, and asset client.
+      transportForRoom: (nextRoom) => this.plugin.getCollaborationTransport(nextRoom),
+      createRoom: (initialBoard) => this.plugin.createCollaborationRoom(initialBoard),
+      joinRoom: (inviteCode) => this.plugin.resolveCollaborationRoom(inviteCode),
+      saveRoom: (nextRoom) => {
+        saveBoardRoom(window.localStorage, this.app.vault.getName(), file.path, nextRoom);
+        return Promise.resolve();
+      },
+      listMembers: (activeRoom) => this.plugin.listCollaborationRoomMembers(activeRoom),
+      getRoomStorage: (activeRoom) => this.plugin.getCollaborationRoomStorage(activeRoom),
+      getRoomTree: (activeRoom) => this.plugin.getCollaborationRoomTree(activeRoom),
+      cleanupRoomAssets: (activeRoom) => this.plugin.cleanupCollaborationRoomAssets(activeRoom),
+      exportRoom: (activeRoom) => this.plugin.exportCollaborationRoom(activeRoom),
+      deleteRoom: (activeRoom) => this.plugin.deleteCollaborationRoom(activeRoom),
+      createChildRoom: (parentRoom, childKey, childBoard) => this.plugin.createCollaborationChildRoom(parentRoom, childKey, childBoard),
+      openChildRoom: (parentRoom, childRoomId) => this.plugin.openCollaborationChildRoom(parentRoom, childRoomId),
+      saveChildRoom: (boardPath, childRoom) => {
+        saveBoardRoom(window.localStorage, this.app.vault.getName(), boardPath, childRoom);
+        return Promise.resolve();
+      },
+      findBoardPathForRoom: (roomId) =>
+        findBoardPathForRoom(window.localStorage, this.app.vault.getName(), roomId),
+      rotateInvite: (activeRoom, role) => this.plugin.rotateCollaborationRoomInvite(activeRoom, role),
+      removeMember: (activeRoom, clientId) => this.plugin.removeCollaborationRoomMember(activeRoom, clientId),
+      formatInvite: (inviteCode) => this.plugin.formatCollaborationInvite(inviteCode),
+      assetClientForRoom: () => this.plugin.createCollaborationAssetClient(),
+      assetClient,
+    };
   }
 
   // ── Public navigation API (called by GridRenderer) ───────────
@@ -245,45 +328,7 @@ export class VisualNotesView extends FileView {
         (value) => { this.plugin.settings.penDrawOptions = value; void this.plugin.saveSettings(); },
         this.plugin.settings.panButton ?? 'middle',
         this.plugin.settings.appearanceButton !== false,
-        this.plugin.settings.experimentalCollaboration ? (() => {
-          const websocket = this.plugin.usesWebSocketCollaboration();
-          const room = websocket ? loadBoardRoom(window.localStorage, this.app.vault.getName(), file.path) : undefined;
-          const assetClient = websocket ? this.plugin.createCollaborationAssetClient() : undefined;
-          return {
-          transport: this.plugin.getCollaborationTransport(room),
-          identity: ensureCollaborationIdentity(
-            this.plugin.settings, undefined, window.localStorage, this.app.vault.getName()
-          ).identity,
-          label: this.plugin.settings.collaborationTransport === 'private-network'
-            ? 'Private network' : this.plugin.usesWebSocketCollaboration() ? 'Development server' : 'Local session',
-          room,
-          transportForRoom: websocket ? (nextRoom) => this.plugin.getCollaborationTransport(nextRoom) : undefined,
-          createRoom: websocket ? (initialBoard) => this.plugin.createCollaborationRoom(initialBoard) : undefined,
-          joinRoom: websocket ? (inviteCode) => this.plugin.resolveCollaborationRoom(inviteCode) : undefined,
-          saveRoom: websocket ? (nextRoom) => {
-            saveBoardRoom(window.localStorage, this.app.vault.getName(), file.path, nextRoom);
-            return Promise.resolve();
-          } : undefined,
-          listMembers: websocket ? (activeRoom) => this.plugin.listCollaborationRoomMembers(activeRoom) : undefined,
-          getRoomStorage: websocket ? (activeRoom) => this.plugin.getCollaborationRoomStorage(activeRoom) : undefined,
-          getRoomTree: websocket ? (activeRoom) => this.plugin.getCollaborationRoomTree(activeRoom) : undefined,
-          cleanupRoomAssets: websocket ? (activeRoom) => this.plugin.cleanupCollaborationRoomAssets(activeRoom) : undefined,
-          exportRoom: websocket ? (activeRoom) => this.plugin.exportCollaborationRoom(activeRoom) : undefined,
-          deleteRoom: websocket ? (activeRoom) => this.plugin.deleteCollaborationRoom(activeRoom) : undefined,
-          createChildRoom: websocket ? (parentRoom, childKey, childBoard) => this.plugin.createCollaborationChildRoom(parentRoom, childKey, childBoard) : undefined,
-          openChildRoom: websocket ? (parentRoom, childRoomId) => this.plugin.openCollaborationChildRoom(parentRoom, childRoomId) : undefined,
-          saveChildRoom: websocket ? (boardPath, childRoom) => {
-            saveBoardRoom(window.localStorage, this.app.vault.getName(), boardPath, childRoom);
-            return Promise.resolve();
-          } : undefined,
-          findBoardPathForRoom: websocket ? (roomId) =>
-            findBoardPathForRoom(window.localStorage, this.app.vault.getName(), roomId) : undefined,
-          rotateInvite: websocket ? (activeRoom, role) => this.plugin.rotateCollaborationRoomInvite(activeRoom, role) : undefined,
-          removeMember: websocket ? (activeRoom, clientId) => this.plugin.removeCollaborationRoomMember(activeRoom, clientId) : undefined,
-          formatInvite: websocket ? (inviteCode) => this.plugin.formatCollaborationInvite(inviteCode) : undefined,
-          assetClientForRoom: websocket ? () => this.plugin.createCollaborationAssetClient() : undefined,
-          assetClient,
-        }; })() : undefined,
+        this.plugin.settings.experimentalCollaboration ? this.collaborationOptions(file) : undefined,
       );
     } else {
       this.renderer = new GridRenderer(
