@@ -62,13 +62,14 @@ describe('desktop private-network host', () => {
     expect(runtime.writeFile).toHaveBeenCalledWith(
       '.obsidian/plugins/visual-notes/.collaboration-runtime/collaboration-server.cjs', 'server source',
     );
-    // ...while the Node process is handed absolute paths for both.
+    // The module path is absolute, while persistence remains vault-relative
+    // so only the Obsidian adapter bridge can access it.
     expect(runtime.spawn).toHaveBeenCalledWith(
       '/abs/vault/.obsidian/plugins/visual-notes/.collaboration-runtime/collaboration-server.cjs',
       expect.objectContaining({
         VISUAL_NOTES_COLLAB_HOST: '100.88.1.2', VISUAL_NOTES_COLLAB_PORT: '8787',
         VISUAL_NOTES_COLLAB_TOKEN: 'a'.repeat(32),
-        VISUAL_NOTES_COLLAB_DATA: '/abs/vault/.obsidian/visual-notes-collaboration',
+        VISUAL_NOTES_COLLAB_DATA: '.obsidian/visual-notes-collaboration',
       }),
     );
     expect(runtime.ready).toHaveBeenCalledWith('http://100.88.1.2:8787/ready');

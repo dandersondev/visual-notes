@@ -1,5 +1,8 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { requestUrl } from 'obsidian';
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
+import { requireDesktopNodeModule } from './desktop-node';
+
+const { createHash, timingSafeEqual } = requireDesktopNodeModule<typeof import('node:crypto')>('node:crypto');
 
 export interface ServicePrincipal {
   kind: 'development' | 'account';
@@ -115,9 +118,9 @@ function createOidcAuthenticator(environment: ServiceAuthEnvironment): ServiceAu
 
 async function discoverVerificationKey(issuer: string, allowInsecure: boolean): Promise<JWTVerifyGetKey> {
   const discoveryUrl = new URL(`${issuer.replace(/\/+$/, '')}/.well-known/openid-configuration`);
-  const response = await fetch(discoveryUrl, { headers: { accept: 'application/json' } });
-  if (!response.ok) throw new Error(`OIDC discovery failed with ${response.status}.`);
-  const value: unknown = await response.json();
+  const response = await requestUrl({ url: discoveryUrl.toString(), headers: { accept: 'application/json' }, throw: false });
+  if (response.status < 200 || response.status >= 300) throw new Error(`OIDC discovery failed with ${response.status}.`);
+  const value: unknown = response.json;
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('OIDC discovery document is invalid.');
   const discovery = value as Record<string, unknown>;
   if (discovery.issuer !== issuer || typeof discovery.jwks_uri !== 'string') {

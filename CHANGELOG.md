@@ -2,6 +2,17 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.3.2
+
+Continues clearing Obsidian's review findings. No feature changes; collaboration hosting, images, videos, ranged video playback, nested rooms, and room persistence all behave as before.
+
+### Changed
+- **The embedded room server now stores its data through Obsidian rather than Node.** Room documents and shared media go through the vault adapter, and its outbound requests go through Obsidian's request API. The separate standalone server build keeps its own Node-backed storage, so both remain supported from one source.
+- **Node modules are loaded only on desktop, at the moment they are needed**, instead of being imported when the file loads.
+
+### Fixed
+- Production builds now fail outright if a direct filesystem module reappears in the shipped `main.js`, so this cannot regress unnoticed.
+
 ## 1.3.1
 
 Addresses the warnings from Obsidian's plugin review of 1.3.0. No feature changes.

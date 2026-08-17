@@ -1,6 +1,20 @@
 import { createServer, type Server } from 'node:http';
 import { exportJWK, generateKeyPair, SignJWT, type KeyLike } from 'jose';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+vi.mock('obsidian', async importOriginal => ({
+  ...await importOriginal<typeof import('./obsidian-stub')>(),
+  async requestUrl(options: { url: string; headers?: Record<string, string> }) {
+    const response = await fetch(options.url, { headers: options.headers });
+    const text = await response.text();
+    return {
+      status: response.status,
+      text,
+      json: JSON.parse(text) as unknown,
+      arrayBuffer: new TextEncoder().encode(text).buffer,
+    };
+  },
+}));
 import {
   createServiceAuthenticator, principalMatchesAccount, serviceAccountId,
 } from '../collaboration-server/src/service-auth';

@@ -34,7 +34,7 @@ export interface CollaborationHostRuntime {
   /** Paths are vault-relative, so the adapter can create and write them. */
   ensureDirectory(vaultPath: string): Promise<void>;
   writeFile(vaultPath: string, source: string): Promise<void>;
-  /** Vault-relative to absolute, for the two values the server process needs. */
+  /** Vault-relative to absolute, for loading the extracted server module. */
   resolvePath(vaultPath: string): string;
   spawn(modulePath: string, environment: Record<string, string>): HostedProcess;
   ready(url: string): Promise<boolean>;
@@ -45,7 +45,7 @@ export interface CollaborationHostStartOptions {
   address: CollaborationHostAddress;
   port: number;
   token: string;
-  /** Vault-relative. The server runs in Node and needs these resolved. */
+  /** Vault-relative. Persistence stays behind the Obsidian adapter bridge. */
   runtimeDirectory: string;
   dataDirectory: string;
 }
@@ -71,14 +71,14 @@ export class CollaborationHostManager {
       await this.runtime.ensureDirectory(options.dataDirectory);
       const modulePath = joinWindowsSafe(options.runtimeDirectory, 'collaboration-server.cjs');
       await this.runtime.writeFile(modulePath, this.serverSource);
-      // The server is a Node process: it resolves its own data directory and
-      // is loaded by absolute path, so these two cross back out of vault space.
+      // The module must be loaded by absolute path. Its data path deliberately
+      // remains vault-relative and is resolved only by the adapter bridge.
       const child = this.runtime.spawn(this.runtime.resolvePath(modulePath), {
         VISUAL_NOTES_COLLAB_AUTH_MODE: 'development',
         VISUAL_NOTES_COLLAB_HOST: options.address.address,
         VISUAL_NOTES_COLLAB_PORT: String(options.port),
         VISUAL_NOTES_COLLAB_TOKEN: options.token,
-        VISUAL_NOTES_COLLAB_DATA: this.runtime.resolvePath(options.dataDirectory),
+        VISUAL_NOTES_COLLAB_DATA: options.dataDirectory,
       });
       this.process = child;
       child.stderr?.on('data', chunk => { this.stderr = `${this.stderr}${String(chunk)}`.slice(-2000); });

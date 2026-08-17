@@ -1,9 +1,11 @@
 {
   "name": "visual-notes",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "description": "Visual Notes — a visual workspace for Obsidian",
   "main": "main.js",
-  "workspaces": ["collaboration-server"],
+  "workspaces": [
+    "collaboration-server"
+  ],
   "scripts": {
     "generate-templates": "node scripts/generate-starter-templates.mjs",
     "generate-benchmarks": "node scripts/generate-benchmark-boards.mjs",

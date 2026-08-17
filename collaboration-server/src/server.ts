@@ -1,6 +1,3 @@
-import { createHash, randomBytes } from 'node:crypto';
-import { createServer } from 'node:http';
-import { resolve } from 'node:path';
 import { WebSocketServer, WebSocket, type RawData } from 'ws';
 import { applyBoardOperation, type BoardOperation } from '../../src/collaboration-operations';
 import {
@@ -16,7 +13,11 @@ import type { VisualNotesFile } from '../../src/file-types';
 import {
   createServiceAuthenticator, principalMatchesAccount, serviceAccountId, type ServicePrincipal,
 } from './service-auth';
-import { FileAssetBlobStore, FileRoomDocumentStore } from './persistence';
+import { AssetBlobStore, RoomDocumentStore, joinPath } from './persistence-selected';
+import { requireDesktopNodeModule } from './desktop-node';
+
+const { createHash, randomBytes } = requireDesktopNodeModule<typeof import('node:crypto')>('node:crypto');
+const { createServer } = requireDesktopNodeModule<typeof import('node:http')>('node:http');
 
 const host = process.env.VISUAL_NOTES_COLLAB_HOST ?? '127.0.0.1';
 const port = numberEnv('VISUAL_NOTES_COLLAB_PORT', numberEnv('PORT', 8787));
@@ -26,7 +27,7 @@ const serviceAuthenticator = createServiceAuthenticator(process.env);
 // npm runs a workspace script with the workspace folder as cwd, so the longer
 // path resolved to a nested collaboration-server/collaboration-server/.data
 // that quietly accumulated real room JSON and transferred assets.
-const dataDirectory = resolve(process.env.VISUAL_NOTES_COLLAB_DATA ?? '.data');
+const dataDirectory = process.env.VISUAL_NOTES_COLLAB_DATA ?? '.data';
 const maxPayload = numberEnv('VISUAL_NOTES_COLLAB_MAX_PAYLOAD', 4 * 1024 * 1024);
 const maxAssetSize = numberEnv('VISUAL_NOTES_COLLAB_MAX_ASSET', 20 * 1024 * 1024);
 const maxVideoAssetSize = numberEnv('VISUAL_NOTES_COLLAB_MAX_VIDEO_ASSET', 250 * 1024 * 1024);
@@ -73,11 +74,11 @@ interface PersistedInvite {
   createdAt: number;
 }
 
-const roomDocuments = new FileRoomDocumentStore<PersistedRoom>(
+const roomDocuments = new RoomDocumentStore<PersistedRoom>(
   dataDirectory, validatePersistedRoom,
   roomId => `${createHash('sha256').update(roomId).digest('hex')}.json`,
 );
-const assetBlobs = new FileAssetBlobStore(resolve(dataDirectory, 'assets'));
+const assetBlobs = new AssetBlobStore(joinPath(dataDirectory, 'assets'));
 
 interface Member {
   socket: WebSocket;
@@ -1012,12 +1013,12 @@ async function serveAsset(
       'content-length': range.end - range.start + 1,
     });
     if (headOnly) { response.end(); return; }
-    assetBlobs.read(assetHash, { start: range.start, end: range.end }).pipe(response);
+    response.end(Buffer.from(await assetBlobs.read(assetHash, { start: range.start, end: range.end })));
     return;
   }
   response.writeHead(200, { ...common, 'content-length': fileSize });
   if (headOnly) { response.end(); return; }
-  assetBlobs.read(assetHash).pipe(response);
+  response.end(Buffer.from(await assetBlobs.read(assetHash)));
 }
 
 function parseByteRange(value: string | undefined, size: number): { start: number; end: number } | 'invalid' | undefined {

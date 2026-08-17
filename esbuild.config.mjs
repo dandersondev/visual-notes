@@ -79,6 +79,12 @@ const context = await esbuild.context({
 
 if (prod) {
   await context.rebuild();
+  const releaseBundle = readFileSync("main.js", "utf8");
+  const forbiddenModules = ["node:fs", "node:fs/promises"].filter(module => releaseBundle.includes(module));
+  if (forbiddenModules.length) {
+    throw new Error(`Release bundle contains forbidden direct-filesystem modules: ${forbiddenModules.join(", ")}`);
+  }
+  console.log("Release bundle check passed: no direct Node filesystem modules.");
   process.exit(0);
 } else {
   await context.watch();

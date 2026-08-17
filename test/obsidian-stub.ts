@@ -8,6 +8,10 @@
 // obsidian-dom-polyfill.ts since they're needed regardless of which
 // Obsidian classes a given file imports.
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { createRequire } from 'node:module';
+
+(globalThis as typeof globalThis & { __visualNotesNodeRequire?: (id: string) => unknown })
+  .__visualNotesNodeRequire ??= createRequire(import.meta.url);
 
 export class TAbstractFile {
   path = '';
@@ -45,6 +49,7 @@ export function getIconIds(): string[] { return []; }
 // booleans — mutable here too, so tests can flip `Platform.isPhone` to
 // exercise phone-specific branches without needing a class or a mock.
 export const Platform = {
+  isDesktopApp: true,
   isDesktop: true,
   isMobile: false,
   isPhone: false,

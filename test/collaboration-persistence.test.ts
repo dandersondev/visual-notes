@@ -1,7 +1,14 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { vi } from 'vitest';
+
+vi.mock('obsidian', () => {
+  globalThis.__visualNotesNodeRequire = createRequire(import.meta.url);
+  return { Platform: { isDesktopApp: true } };
+});
 import { FileAssetBlobStore, FileRoomDocumentStore } from '../collaboration-server/src/persistence';
 
 const directories: string[] = [];
@@ -33,7 +40,7 @@ describe('collaboration persistence boundaries', () => {
     await store.putIfAbsent('asset', Buffer.from('0123456789'));
     await store.putIfAbsent('asset', Buffer.from('replacement must not win'));
     await expect(store.size('asset')).resolves.toBe(10);
-    await expect(readStream(store.read('asset', { start: 2, end: 5 }))).resolves.toBe('2345');
+    await expect(store.read('asset', { start: 2, end: 5 }).then(bytes => Buffer.from(bytes).toString('utf8'))).resolves.toBe('2345');
     await store.delete('asset');
     await expect(store.size('asset')).rejects.toMatchObject({ code: 'ENOENT' });
   });
@@ -43,10 +50,4 @@ function temporaryDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), 'visual-notes-persistence-'));
   directories.push(directory);
   return directory;
-}
-
-async function readStream(stream: NodeJS.ReadableStream): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) chunks.push(Buffer.from(chunk as Uint8Array));
-  return Buffer.concat(chunks).toString('utf8');
 }

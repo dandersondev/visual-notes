@@ -1,23 +1,10 @@
-import { randomBytes } from 'node:crypto';
-import { createReadStream, type ReadStream } from 'node:fs';
-import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import type { AssetBlobStore, RoomDocumentStore } from './persistence-contract';
+import { requireDesktopNodeModule } from './desktop-node';
 
-export interface RoomDocumentStore<T> {
-  ready(): Promise<void>;
-  load(roomId: string): Promise<T>;
-  save(roomId: string, value: T): Promise<void>;
-  delete(roomId: string): Promise<void>;
-  list(): Promise<T[]>;
-}
-
-export interface AssetBlobStore {
-  ready(): Promise<void>;
-  putIfAbsent(hash: string, bytes: Uint8Array): Promise<void>;
-  size(hash: string): Promise<number>;
-  read(hash: string, range?: { start: number; end: number }): ReadStream;
-  delete(hash: string): Promise<void>;
-}
+const { randomBytes } = requireDesktopNodeModule<typeof import('node:crypto')>('node:crypto');
+const { mkdir, readFile, readdir, rename, stat, unlink, writeFile }
+  = requireDesktopNodeModule<typeof import('node:fs/promises')>('node:fs/promises');
+const { resolve } = requireDesktopNodeModule<typeof import('node:path')>('node:path');
 
 /** Local development adapter. Hosted adapters can implement the same boundary. */
 export class FileRoomDocumentStore<T> implements RoomDocumentStore<T> {
@@ -72,14 +59,18 @@ export class FileAssetBlobStore implements AssetBlobStore {
 
   async size(hash: string): Promise<number> { return (await stat(this.path(hash))).size; }
 
-  read(hash: string, range?: { start: number; end: number }): ReadStream {
-    return createReadStream(this.path(hash), range);
+  async read(hash: string, range?: { start: number; end: number }): Promise<Uint8Array> {
+    const bytes = await readFile(this.path(hash));
+    return range ? bytes.subarray(range.start, range.end + 1) : bytes;
   }
 
   async delete(hash: string): Promise<void> { await unlink(this.path(hash)); }
 
   private path(hash: string): string { return resolve(this.directory, hash); }
 }
+
+export { FileRoomDocumentStore as RoomDocumentStore, FileAssetBlobStore as AssetBlobStore };
+export function joinPath(parent: string, child: string): string { return resolve(parent, child); }
 
 function isAlreadyExists(error: unknown): boolean {
   return !!error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST';

@@ -43,6 +43,25 @@ interface EmbeddedServerModule {
   stopCollaborationServer(): Promise<void>;
 }
 
+interface CollaborationStorageBridge {
+  exists(path: string): Promise<boolean>;
+  mkdir(path: string): Promise<void>;
+  list(path: string): Promise<{ files: string[]; folders: string[] }>;
+  read(path: string): Promise<string>;
+  readBinary(path: string): Promise<ArrayBuffer>;
+  write(path: string, value: string): Promise<void>;
+  writeBinary(path: string, value: ArrayBuffer): Promise<void>;
+  rename(from: string, to: string): Promise<void>;
+  remove(path: string): Promise<void>;
+  stat(path: string): Promise<{ size: number } | null>;
+}
+
+interface CollaborationServerGlobals {
+  __visualNotesCollaborationStorage?: CollaborationStorageBridge;
+  __visualNotesNodeRequire?: DesktopModuleLoader;
+  __visualNotesCollaborationRequest?: typeof requestUrl;
+}
+
 const READY_TIMEOUT_MS = 500;
 
 export function createDesktopCollaborationHostRuntime(app: App): CollaborationHostRuntime {
@@ -66,6 +85,10 @@ export function createDesktopCollaborationHostRuntime(app: App): CollaborationHo
       return local.getFullPath(vaultPath);
     },
     spawn(modulePath, environment) {
+      const serverGlobals = globalThis as typeof globalThis & CollaborationServerGlobals;
+      serverGlobals.__visualNotesCollaborationStorage = createStorageBridge(app);
+      serverGlobals.__visualNotesNodeRequire = desktopRequire();
+      serverGlobals.__visualNotesCollaborationRequest = requestUrl;
       const processModule = requireDesktopModule<DesktopProcessModule>('node:process');
       const previous = new Map<string, string | undefined>();
       for (const [key, value] of Object.entries(environment)) {
@@ -80,6 +103,11 @@ export function createDesktopCollaborationHostRuntime(app: App): CollaborationHo
         // previous run would silently keep serving the old server.
         delete loader.cache[resolved];
         serverModule = loader(resolved) as EmbeddedServerModule;
+      } catch (error) {
+        delete serverGlobals.__visualNotesCollaborationStorage;
+        delete serverGlobals.__visualNotesNodeRequire;
+        delete serverGlobals.__visualNotesCollaborationRequest;
+        throw error;
       } finally {
         for (const [key, value] of previous) {
           if (value === undefined) delete processModule.env[key];
@@ -92,10 +120,14 @@ export function createDesktopCollaborationHostRuntime(app: App): CollaborationHo
         get exitCode(): number | null { return exitCode; },
         kill(): boolean {
           if (exitCode !== null) return false;
-          void serverModule.stopCollaborationServer().then(() => {
+          const finish = (): void => {
+            delete serverGlobals.__visualNotesCollaborationStorage;
+            delete serverGlobals.__visualNotesNodeRequire;
+            delete serverGlobals.__visualNotesCollaborationRequest;
             exitCode = 0;
             for (const listener of exitListeners.splice(0)) listener(0);
-          });
+          };
+          void serverModule.stopCollaborationServer().then(finish, finish);
           return true;
         },
         once(event: 'exit' | 'error', listener: ((code: number | null) => void) | ((error: Error) => void)) {
@@ -110,6 +142,25 @@ export function createDesktopCollaborationHostRuntime(app: App): CollaborationHo
     },
     ready: url => readinessRequest(url),
     delay: milliseconds => new Promise(resolve => window.setTimeout(resolve, milliseconds)),
+  };
+}
+
+function createStorageBridge(app: App): CollaborationStorageBridge {
+  const adapter = app.vault.adapter;
+  return {
+    exists: path => adapter.exists(path),
+    mkdir: path => adapter.mkdir(path),
+    list: path => adapter.list(path),
+    read: path => adapter.read(path),
+    readBinary: path => adapter.readBinary(path),
+    write: (path, value) => adapter.write(path, value),
+    writeBinary: (path, value) => adapter.writeBinary(path, value),
+    rename: (from, to) => adapter.rename(from, to),
+    remove: path => adapter.remove(path),
+    async stat(path) {
+      const details = await adapter.stat(path);
+      return details ? { size: details.size } : null;
+    },
   };
 }
 

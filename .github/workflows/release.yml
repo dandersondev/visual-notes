@@ -42,6 +42,12 @@ jobs:
       # a soft Recommendation. Attestations are also permanent and keyed by
       # file digest — re-attesting unchanged bytes stacks more of them — so
       # don't re-add this step unless Obsidian's verifier is confirmed fixed.
+      #
+      # This was re-added once during the 1.3.x review cycle and reverted
+      # again: three releases (1.0.13, 1.0.16, 1.0.17) had already failed
+      # review on exactly this, including with actions/attest@v4. See
+      # commit 45c51c8. A present-but-unverifiable attestation is strictly
+      # worse than none.
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:

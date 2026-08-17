@@ -16,7 +16,7 @@ vi.mock('obsidian', () => ({
   },
 }));
 import { createRequire } from 'node:module';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
@@ -39,8 +39,27 @@ function fakeApp(vaultRoot: string): App {
     exists: (vaultPath: string) => stat(full(vaultPath)).then(() => true, () => false),
     mkdir: (vaultPath: string) => mkdir(full(vaultPath), { recursive: true }).then(() => undefined),
     write: (vaultPath: string, data: string) => writeFile(full(vaultPath), data, 'utf8'),
+    read: (vaultPath: string) => readFile(full(vaultPath), 'utf8'),
+    readBinary: (vaultPath: string) => readFile(full(vaultPath)).then(bytes => exactArrayBuffer(bytes)),
+    writeBinary: (vaultPath: string, data: ArrayBuffer) => writeFile(full(vaultPath), new Uint8Array(data)),
+    rename: (from: string, to: string) => rename(full(from), full(to)),
+    remove: (vaultPath: string) => unlink(full(vaultPath)),
+    list: async (vaultPath: string) => {
+      const entries = await readdir(full(vaultPath), { withFileTypes: true });
+      return {
+        files: entries.filter(entry => entry.isFile()).map(entry => `${vaultPath}/${entry.name}`),
+        folders: entries.filter(entry => entry.isDirectory()).map(entry => `${vaultPath}/${entry.name}`),
+      };
+    },
+    stat: (vaultPath: string) => stat(full(vaultPath)).then(details => ({
+      type: details.isDirectory() ? 'folder' : 'file', ctime: details.ctimeMs, mtime: details.mtimeMs, size: details.size,
+    }), () => null),
   };
   return { vault: { adapter } } as unknown as App;
+}
+
+function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 afterEach(async () => {
