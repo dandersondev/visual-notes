@@ -2,6 +2,11 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.1
+
+### Fixed
+- **A collaborator's cursor disappeared as soon as anyone edited the board**, and never came back. Editing rebuilds the board, which discards the cursors drawn on it; they were not being recreated afterwards, so the only cursor left was your own. Introduced in the same change that stopped cursors lagging and leaving trails.
+
 ## 1.4.0
 
 ### Added

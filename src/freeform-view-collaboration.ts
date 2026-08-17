@@ -300,7 +300,15 @@ export const collaborationMethods = {
       if (person.cursor) {
         seen.add(person.clientId);
         let cursor = this.collaborationCursorEls.get(person.clientId);
-        if (!cursor) {
+        // isConnected, not just presence in the map. Cursors are children of
+        // `inner`, which a board re-render replaces wholesale -- so after any
+        // edit the tracked element is detached. Reusing it then updated a node
+        // that is no longer in the document, and the cursor stayed invisible
+        // for good, because the map still held an entry so nothing rebuilt it.
+        // Rebuilding from scratch every update used to hide this; it stopped
+        // hiding it once the elements were reused.
+        if (!cursor?.isConnected) {
+          cursor?.remove();
           cursor = this.inner.createDiv('visual-notes-remote-cursor');
           cursor.createDiv('visual-notes-remote-cursor-tip');
           cursor.createDiv('visual-notes-remote-cursor-name');
