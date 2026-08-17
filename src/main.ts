@@ -95,10 +95,13 @@ export default class VisualNotesPlugin extends Plugin {
     this.settings.collaborationPrivateNetworkUrl = `ws://${address.address.includes(':') ? `[${address.address}]` : address.address}:${port}`;
     this.settings.collaborationTransport = 'private-network';
     await this.saveSettings();
-    const pluginDirectory = adapter.getFullPath(`${this.app.vault.configDir}/plugins/${this.manifest.id}`);
-    const dataDirectory = adapter.getFullPath(`${this.app.vault.configDir}/visual-notes-collaboration`);
+    // Vault-relative: both live inside the vault, so the runtime creates and
+    // writes them through Obsidian's adapter rather than node:fs, and resolves
+    // them to absolute paths only where the server process itself needs them.
+    const pluginDirectory = `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+    const dataDirectory = `${this.app.vault.configDir}/visual-notes-collaboration`;
     this.collaborationHost ??= new CollaborationHostManager(
-      collaborationServerSource, createDesktopCollaborationHostRuntime(),
+      collaborationServerSource, createDesktopCollaborationHostRuntime(this.app),
     );
     return this.collaborationHost.start({
       address, port, token,

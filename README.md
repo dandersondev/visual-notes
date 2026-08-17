@@ -14,12 +14,6 @@ A place to think in space rather than in a list, the way you would in Milanote, 
 
 Plan a scene shot by shot without leaving your vault — draw the frames, time the sequence, play it back, and export a shot list your collaborators can read.
 
-<!-- SCREENSHOT: assets/storyboard-editor.png — the focused editor, ideally the Screenwriting
-     template's rooftop scene: scene sections left, a drawn-on shot in the middle, inspector
-     right, filmstrip along the bottom. Landscape, ~1600px wide. Add the file, then uncomment:
-![The Storyboard editor](assets/storyboard-editor.png)
--->
-
 A Storyboard is one canvas card containing an entire visual sequence, so planning a scene does not add dozens of specialist cards to the main board. Add one from the toolbar's **···** menu, the `/` quick-add palette, or the canvas right-click menu, then use its expand button or double-click its preview to enter the focused editor.
 
 - Organise the overall scene into **scene sections**, with a draggable **shot** filmstrip along the bottom
@@ -35,11 +29,6 @@ A Storyboard is one canvas card containing an entire visual sequence, so plannin
 - **Export** a Markdown shot list or the whole Storyboard as a PNG contact sheet. On desktop both download; on iPhone and iPad they are written to an `_Exports` folder in your vault, with a message giving the exact path
 - Switch the card's normal canvas preview between a horizontal filmstrip and a grid, and cycle its shot previews through Small, Medium and Large; shot notes appear beneath their frames as readable descriptions without opening the editor
 - Open the bundled **Screenwriting** template for a working four-shot example
-
-<!-- SCREENSHOT: assets/storyboard-card.png — the card as it sits on a board, filmstrip preview,
-     beside a few ordinary cards so the scale reads. Add the file, then uncomment:
-![A Storyboard on a board](assets/storyboard-card.png)
--->
 
 The Storyboard remains one normal, movable and resizable JSON Canvas node. Obsidian's native Canvas shows a readable Markdown shot list, while Visual Notes stores the full scene sections, shots, annotations and shot-relative ink in the node's `vn` metadata.
 

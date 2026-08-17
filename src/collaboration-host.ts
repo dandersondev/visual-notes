@@ -19,17 +19,23 @@ interface NetworkAddressRecord {
 
 export type NetworkInterfaceRecords = Record<string, NetworkAddressRecord[] | undefined>;
 
+/** Spelled out rather than NodeJS.Signals, which needs @types/node. */
+type HostedProcessSignal = 'SIGTERM' | 'SIGKILL';
+
 interface HostedProcess {
   readonly exitCode: number | null;
-  kill(signal?: NodeJS.Signals): boolean;
+  kill(signal?: HostedProcessSignal): boolean;
   once(event: 'exit', listener: (code: number | null) => void): this;
   once(event: 'error', listener: (error: Error) => void): this;
   stderr?: { on(event: 'data', listener: (chunk: unknown) => void): void } | null;
 }
 
 export interface CollaborationHostRuntime {
-  ensureDirectory(path: string): Promise<void>;
-  writeFile(path: string, source: string): Promise<void>;
+  /** Paths are vault-relative, so the adapter can create and write them. */
+  ensureDirectory(vaultPath: string): Promise<void>;
+  writeFile(vaultPath: string, source: string): Promise<void>;
+  /** Vault-relative to absolute, for the two values the server process needs. */
+  resolvePath(vaultPath: string): string;
   spawn(modulePath: string, environment: Record<string, string>): HostedProcess;
   ready(url: string): Promise<boolean>;
   delay(milliseconds: number): Promise<void>;
@@ -39,6 +45,7 @@ export interface CollaborationHostStartOptions {
   address: CollaborationHostAddress;
   port: number;
   token: string;
+  /** Vault-relative. The server runs in Node and needs these resolved. */
   runtimeDirectory: string;
   dataDirectory: string;
 }
@@ -64,12 +71,14 @@ export class CollaborationHostManager {
       await this.runtime.ensureDirectory(options.dataDirectory);
       const modulePath = joinWindowsSafe(options.runtimeDirectory, 'collaboration-server.cjs');
       await this.runtime.writeFile(modulePath, this.serverSource);
-      const child = this.runtime.spawn(modulePath, {
+      // The server is a Node process: it resolves its own data directory and
+      // is loaded by absolute path, so these two cross back out of vault space.
+      const child = this.runtime.spawn(this.runtime.resolvePath(modulePath), {
         VISUAL_NOTES_COLLAB_AUTH_MODE: 'development',
         VISUAL_NOTES_COLLAB_HOST: options.address.address,
         VISUAL_NOTES_COLLAB_PORT: String(options.port),
         VISUAL_NOTES_COLLAB_TOKEN: options.token,
-        VISUAL_NOTES_COLLAB_DATA: options.dataDirectory,
+        VISUAL_NOTES_COLLAB_DATA: this.runtime.resolvePath(options.dataDirectory),
       });
       this.process = child;
       child.stderr?.on('data', chunk => { this.stderr = `${this.stderr}${String(chunk)}`.slice(-2000); });

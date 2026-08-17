@@ -2,6 +2,17 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.3.1
+
+Addresses the warnings from Obsidian's plugin review of 1.3.0. No feature changes.
+
+### Changed
+- **Hosting now uses Obsidian's own APIs where they reach.** Creating the room directories, writing the extracted server, and checking that the host is ready go through the vault adapter and `requestUrl` instead of Node's `fs` and `http` modules. Both directories already lived inside the vault, so nothing the plugin does touches the filesystem outside it. The one thing with no Obsidian equivalent -- listing network interfaces, and loading the extracted server -- is still loaded dynamically, on desktop only, and now checks for desktop immediately before doing so.
+
+### Fixed
+- The plugin declared no TypeScript `lib`, so it inherited ES2018 and lost `Array.prototype.flat`/`flatMap`. That went unnoticed because an installed dependency quietly supplied a newer one; analysed without dependencies -- as Obsidian's review does -- large parts of the collaboration merge and diff code became untyped. The library level is now stated outright, and a third typecheck reproduces the review's dependency-free environment on every build so this cannot recur.
+- Removed placeholder comments left in the README.
+
 ## 1.3.0
 
 ### Added

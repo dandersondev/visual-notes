@@ -5,6 +5,18 @@
     "inlineSources": true,
     "module": "ESNext",
     "target": "ES2018",
+    // Explicit, and deliberately newer than `target`. Without this, `lib` is
+    // derived from target ES2018, and Array.prototype.flat/flatMap (ES2019)
+    // do not exist -- every call returns `any` and the type-aware lint then
+    // reports a cascade of no-unsafe-* against code that compiles cleanly
+    // here. It compiled here only by accident: @types/node carries
+    // `/// <reference lib="es2020" />`, so installing dependencies silently
+    // upgraded the lib. Obsidian's health check analyses the repo WITHOUT
+    // installing dependencies, so it saw the real ES2018 lib and rated the
+    // plugin risky. Naming the lib makes both environments agree.
+    // `target` stays ES2018: it governs emitted syntax, not runtime APIs, and
+    // flat/flatMap exist in every Obsidian desktop and mobile runtime.
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "allowImportingTsExtensions": false,
     "importHelpers": true,
     "isolatedModules": true,

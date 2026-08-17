@@ -1,0 +1,24 @@
+{
+  // Reproduces the environment Obsidian's plugin health check analyses in:
+  // the repo WITHOUT `npm install` having run. `"types": []` stops TypeScript
+  // auto-including everything under node_modules/@types, which is what hid
+  // two whole classes of problem for this repo:
+  //
+  //   1. @types/node carries `/// <reference lib="es2020" />`, so installing
+  //      dependencies silently upgraded the lib and made Array.prototype.flat
+  //      type-check here while the checker saw ES2018 and `any`.
+  //   2. @types/node supplied the node:* module and NodeJS.* namespace types
+  //      that plugin source must not depend on, since the checker resolves
+  //      them to `any` and reports a cascade of no-unsafe-*.
+  //
+  // Both rated the plugin risky in the 1.3.0 review. `npm run typecheck` alone
+  // cannot catch either, because it runs with node_modules present.
+  //
+  // This is deliberately NOT the same guard as tsconfig.build.json, which
+  // compiles against the REAL installed packages to prove the copies in
+  // types/ still match upstream. The two check opposite directions.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": []
+  }
+}

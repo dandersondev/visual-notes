@@ -1,6 +1,6 @@
 {
   "name": "visual-notes",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Visual Notes — a visual workspace for Obsidian",
   "main": "main.js",
   "workspaces": ["collaboration-server"],
@@ -16,8 +16,9 @@
     "prelint": "npm run generate-templates",
     "lint": "eslint src",
     "sync-types": "node scripts/vendor-types.mjs",
-    "build": "npm run collab:build && npm run typecheck && npm run typecheck:upstream && npm run lint && node esbuild.config.mjs production",
+    "build": "npm run collab:build && npm run typecheck && npm run typecheck:upstream && npm run typecheck:checker && npm run lint && node esbuild.config.mjs production",
     "typecheck:upstream": "tsc --noEmit -p tsconfig.build.json",
+    "typecheck:checker": "tsc --noEmit -p tsconfig.checker.json",
     "collab:build": "npm --workspace collaboration-server run build",
     "collab:start": "npm --workspace collaboration-server run start",
     "collab:dev": "npm --workspace collaboration-server run dev"

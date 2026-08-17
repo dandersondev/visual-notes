@@ -43,6 +43,7 @@ describe('desktop private-network host', () => {
     const runtime: CollaborationHostRuntime = {
       ensureDirectory: vi.fn(() => Promise.resolve()),
       writeFile: vi.fn(() => Promise.resolve()),
+      resolvePath: vi.fn((vaultPath: string) => `/abs/vault/${vaultPath}`),
       spawn: vi.fn(() => child),
       ready: vi.fn(() => Promise.resolve(true)),
       delay: vi.fn(() => Promise.resolve()),
@@ -50,22 +51,33 @@ describe('desktop private-network host', () => {
     const manager = new CollaborationHostManager('server source', runtime);
     const status = await manager.start({
       address: { address: '100.88.1.2', name: 'Tailscale', kind: 'tailscale' },
-      port: 8787, token: 'a'.repeat(32), runtimeDirectory: 'C:/plugin/runtime', dataDirectory: 'C:/vault/data',
+      port: 8787, token: 'a'.repeat(32),
+      runtimeDirectory: '.obsidian/plugins/visual-notes/.collaboration-runtime',
+      dataDirectory: '.obsidian/visual-notes-collaboration',
     });
     expect(status).toEqual({
       state: 'running', address: { address: '100.88.1.2', name: 'Tailscale', kind: 'tailscale' }, port: 8787,
     });
-    expect(runtime.writeFile).toHaveBeenCalledWith('C:/plugin/runtime/collaboration-server.cjs', 'server source');
-    expect(runtime.spawn).toHaveBeenCalledWith('C:/plugin/runtime/collaboration-server.cjs', expect.objectContaining({
-      VISUAL_NOTES_COLLAB_HOST: '100.88.1.2', VISUAL_NOTES_COLLAB_PORT: '8787',
-      VISUAL_NOTES_COLLAB_TOKEN: 'a'.repeat(32), VISUAL_NOTES_COLLAB_DATA: 'C:/vault/data',
-    }));
+    // Written through the vault adapter, so this stays vault-relative...
+    expect(runtime.writeFile).toHaveBeenCalledWith(
+      '.obsidian/plugins/visual-notes/.collaboration-runtime/collaboration-server.cjs', 'server source',
+    );
+    // ...while the Node process is handed absolute paths for both.
+    expect(runtime.spawn).toHaveBeenCalledWith(
+      '/abs/vault/.obsidian/plugins/visual-notes/.collaboration-runtime/collaboration-server.cjs',
+      expect.objectContaining({
+        VISUAL_NOTES_COLLAB_HOST: '100.88.1.2', VISUAL_NOTES_COLLAB_PORT: '8787',
+        VISUAL_NOTES_COLLAB_TOKEN: 'a'.repeat(32),
+        VISUAL_NOTES_COLLAB_DATA: '/abs/vault/.obsidian/visual-notes-collaboration',
+      }),
+    );
     expect(runtime.ready).toHaveBeenCalledWith('http://100.88.1.2:8787/ready');
   });
 
   it('fails before spawning when its secret or port is unsafe', async () => {
     const runtime: CollaborationHostRuntime = {
       ensureDirectory: vi.fn(() => Promise.resolve()), writeFile: vi.fn(() => Promise.resolve()),
+      resolvePath: vi.fn((vaultPath: string) => `/abs/vault/${vaultPath}`),
       spawn: vi.fn(() => hostProcess()), ready: vi.fn(() => Promise.resolve(true)), delay: vi.fn(() => Promise.resolve()),
     };
     const manager = new CollaborationHostManager('source', runtime);

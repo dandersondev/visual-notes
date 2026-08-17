@@ -1,25 +1,85 @@
+import { Platform, requestUrl, type App } from 'obsidian';
 import type { CollaborationHostRuntime, NetworkInterfaceRecords } from './collaboration-host';
 
-export function createDesktopCollaborationHostRuntime(): CollaborationHostRuntime {
-  const { mkdir, writeFile } = requireDesktopModule<typeof import('node:fs/promises')>('node:fs/promises');
-  const http = requireDesktopModule<typeof import('node:http')>('node:http');
-  const https = requireDesktopModule<typeof import('node:https')>('node:https');
+/**
+ * Everything here runs on desktop only, behind Platform.isDesktopApp.
+ *
+ * Two rules shape this file:
+ *
+ * 1. **No `@types/node` in plugin source.** Obsidian's health check analyses
+ *    the repo without installing dependencies, so `typeof import('node:os')`
+ *    resolves to `any` there and the type-aware lint reports a cascade of
+ *    no-unsafe-* against code that compiles cleanly here. The handful of Node
+ *    shapes actually used are therefore declared locally, below.
+ * 2. **Obsidian's API wherever it reaches.** Directory creation, file writes
+ *    and the readiness probe all go through the vault adapter and requestUrl
+ *    rather than node:fs and node:http. Both paths written to live inside the
+ *    vault, so nothing here touches the filesystem outside it.
+ *
+ * What genuinely has no Obsidian equivalent -- enumerating network interfaces,
+ * and loading the extracted server module -- goes through Electron's loader
+ * and is confined to the bottom of the file.
+ */
+
+/** The part of Node's module loader used to load the extracted server. */
+interface DesktopModuleLoader {
+  (id: string): unknown;
+  resolve(id: string): string;
+  cache: Record<string, unknown>;
+}
+
+/** node:os, narrowed to the one call needed to list candidate host addresses. */
+interface DesktopOsModule {
+  networkInterfaces(): NetworkInterfaceRecords;
+}
+
+/** node:process, narrowed to the environment handed to the server module. */
+interface DesktopProcessModule {
+  env: Record<string, string | undefined>;
+}
+
+/** The contract the embedded server bundle exposes back to the plugin. */
+interface EmbeddedServerModule {
+  stopCollaborationServer(): Promise<void>;
+}
+
+const READY_TIMEOUT_MS = 500;
+
+export function createDesktopCollaborationHostRuntime(app: App): CollaborationHostRuntime {
+  const adapter = app.vault.adapter;
   return {
-    ensureDirectory: path => mkdir(path, { recursive: true }).then(() => undefined),
-    writeFile: (path, source) => writeFile(path, source, { encoding: 'utf8', mode: 0o600 }),
+    async ensureDirectory(vaultPath) {
+      // mkdir on an existing folder is an error for some adapters, and this
+      // runs on every host start, not only the first.
+      if (!await adapter.exists(vaultPath)) await adapter.mkdir(vaultPath);
+    },
+    writeFile: (vaultPath, source) => adapter.write(vaultPath, source),
+    resolvePath(vaultPath) {
+      // getFullPath belongs to FileSystemAdapter; startPrivateNetworkHost has
+      // already refused a non-local vault before reaching here. Checked by
+      // shape rather than instanceof so this stays testable without
+      // constructing a real adapter.
+      const local = adapter as Partial<{ getFullPath(path: string): string }>;
+      if (typeof local.getFullPath !== 'function') {
+        throw new Error('Automatic hosting requires a local desktop vault.');
+      }
+      return local.getFullPath(vaultPath);
+    },
     spawn(modulePath, environment) {
-      const processModule = requireDesktopModule<typeof import('node:process')>('node:process');
+      const processModule = requireDesktopModule<DesktopProcessModule>('node:process');
       const previous = new Map<string, string | undefined>();
       for (const [key, value] of Object.entries(environment)) {
         previous.set(key, processModule.env[key]);
         processModule.env[key] = value;
       }
-      let serverModule: { stopCollaborationServer(): Promise<void> };
+      let serverModule: EmbeddedServerModule;
       try {
         const loader = desktopRequire();
         const resolved = loader.resolve(modulePath);
+        // The bundle is rewritten on every start, so a cached copy from a
+        // previous run would silently keep serving the old server.
         delete loader.cache[resolved];
-        serverModule = loader(resolved) as { stopCollaborationServer(): Promise<void> };
+        serverModule = loader(resolved) as EmbeddedServerModule;
       } finally {
         for (const [key, value] of previous) {
           if (value === undefined) delete processModule.env[key];
@@ -48,33 +108,37 @@ export function createDesktopCollaborationHostRuntime(): CollaborationHostRuntim
       };
       return hosted;
     },
-    async ready(url) {
-      return nodeReadinessRequest(url, http, https);
-    },
+    ready: url => readinessRequest(url),
     delay: milliseconds => new Promise(resolve => window.setTimeout(resolve, milliseconds)),
   };
 }
 
-function nodeReadinessRequest(
-  url: string,
-  http: typeof import('node:http'),
-  https: typeof import('node:https'),
-): Promise<boolean> {
-  return new Promise(resolve => {
-    const client = url.startsWith('https:') ? https : http;
-    const request = client.get(url, { timeout: 500 }, response => {
-      let body = '';
-      response.setEncoding('utf8');
-      response.on('data', chunk => { body = `${body}${String(chunk)}`.slice(0, 4096); });
-      response.on('end', () => {
-        if (response.statusCode !== 200) { resolve(false); return; }
-        try { resolve(isCollaborationHostReadyPayload(JSON.parse(body) as unknown)); }
-        catch { resolve(false); }
-      });
+/**
+ * requestUrl has no timeout of its own, and the caller polls this in a loop
+ * while the server boots -- so a request that hangs would stall the whole
+ * start sequence rather than failing the attempt.
+ */
+async function readinessRequest(url: string): Promise<boolean> {
+  let timer: number | undefined;
+  try {
+    const timeout = new Promise<false>(resolve => {
+      timer = window.setTimeout(() => resolve(false), READY_TIMEOUT_MS);
     });
-    request.once('timeout', () => { request.destroy(); resolve(false); });
-    request.once('error', () => resolve(false));
-  });
+    return await Promise.race([timeout, probe(url)]);
+  } catch {
+    return false;
+  } finally {
+    if (timer !== undefined) window.clearTimeout(timer);
+  }
+}
+
+async function probe(url: string): Promise<boolean> {
+  try {
+    const response = await requestUrl({ url, method: 'GET', throw: false });
+    return response.status === 200 && isCollaborationHostReadyPayload(response.json);
+  } catch {
+    return false;
+  }
 }
 
 export function isCollaborationHostReadyPayload(value: unknown): boolean {
@@ -83,17 +147,27 @@ export function isCollaborationHostReadyPayload(value: unknown): boolean {
 }
 
 export function desktopNetworkInterfaces(): NetworkInterfaceRecords {
-  const { networkInterfaces } = requireDesktopModule<typeof import('node:os')>('node:os');
-  return networkInterfaces();
+  return requireDesktopModule<DesktopOsModule>('node:os').networkInterfaces();
 }
 
-/** Obsidian desktop exposes Electron's Node loader on window; mobile never calls this path. */
+/**
+ * Obsidian desktop exposes Electron's Node loader on window; mobile never
+ * reaches here. Node modules are loaded dynamically through this one function
+ * -- never by static import -- so nothing Node-only is pulled into the module
+ * graph on a platform that cannot provide it.
+ */
 function requireDesktopModule<T>(id: string): T {
   return desktopRequire()(id) as T;
 }
 
-function desktopRequire(): NodeRequire {
-  const loader = (window as Window & { require?: NodeRequire }).require;
+function desktopRequire(): DesktopModuleLoader {
+  // Callers are already desktop-gated; re-checking here keeps the guard next
+  // to the load itself, so neither a reader nor a static analyser has to trace
+  // back through call sites to establish it.
+  if (!Platform.isDesktopApp) {
+    throw new Error('Hosting a collaboration room is available on desktop. Mobile devices can join.');
+  }
+  const loader = (window as Window & { require?: DesktopModuleLoader }).require;
   if (!loader) throw new Error('Obsidian desktop did not expose its Node module loader.');
   return loader;
 }
