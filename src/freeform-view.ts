@@ -42,6 +42,7 @@ import type { CollaborationIdentity } from './collaboration-identity';
 import type { CollaborationSession, CollaborationSessionState } from './collaboration-session';
 import type { CollaborationTransport } from './collaboration-transport';
 import type { CollaborationRoomCredentials } from './collaboration-rooms';
+import type { HostedRoomSummary } from './collaboration-host';
 import type { CollaborationChildRoomOpen } from './collaboration-rooms';
 import type { CollaborationRoomMember } from './collaboration-rooms';
 import type { CollaborationRoomStorage } from './collaboration-rooms';
@@ -57,6 +58,9 @@ export interface FreeformCollaborationConfig {
   createRoom?: (board: VisualNotesFile) => Promise<CollaborationRoomCredentials>;
   joinRoom?: (inviteCode: string) => Promise<CollaborationRoomCredentials>;
   saveRoom?: (room: CollaborationRoomCredentials | undefined) => Promise<void>;
+  /** Host-only: rooms stored on this device, and recovering owner access to one. */
+  listHostedRooms?: () => Promise<HostedRoomSummary[]>;
+  claimHostedRoom?: (roomId: string) => Promise<CollaborationRoomCredentials>;
   listMembers?: (room: CollaborationRoomCredentials) => Promise<CollaborationRoomMember[]>;
   getRoomStorage?: (room: CollaborationRoomCredentials) => Promise<CollaborationRoomStorage>;
   getRoomTree?: (room: CollaborationRoomCredentials) => Promise<CollaborationRoomTreeEntry[]>;
@@ -304,6 +308,8 @@ export class FreeformRenderer extends Component {
   collaborationPublishingLocal = false;
   collaborationPresenceEl: HTMLElement | null = null;
   collaborationCursorEls = new Map<string, HTMLElement>();
+  /** Left the room but kept its credentials, so Rejoin is one click. */
+  collaborationLeftRoom = false;
   collaborationSelectionEls: HTMLElement[] = [];
   collaborationPointerAt = 0;
   collaborationCursorLeaveTimer: number | null = null;

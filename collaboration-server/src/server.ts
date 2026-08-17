@@ -213,6 +213,21 @@ class HostedRoom {
     return { accessToken, role };
   }
 
+  /** See claimHostedRoomOwnership -- callable only from the host's own process. */
+  async grantOwnership(identity: CollaborationIdentity): Promise<{ accessToken: string; role: CollaborationRole }> {
+    const accessToken = createAccessToken();
+    const existing = this.state.memberships?.[identity.clientId];
+    (this.state.memberships ??= {})[identity.clientId] = {
+      ...existing,
+      role: 'owner',
+      accessTokenHash: hash(accessToken),
+      displayName: identity.displayName,
+      joinedAt: existing?.joinedAt ?? Date.now(),
+    };
+    await this.persist();
+    return { accessToken, role: 'owner' };
+  }
+
   authenticate(clientId: string, accessToken: string | undefined, principal?: ServicePrincipal): CollaborationRole | undefined {
     if (!accessToken) return undefined;
     const membership = this.state.memberships?.[clientId];
@@ -945,6 +960,49 @@ export async function stopCollaborationServer(): Promise<void> {
   for (const socket of webSockets.clients) socket.terminate();
   await new Promise<void>(resolve => webSockets.close(() => resolve()));
   await new Promise<void>(resolve => httpServer.close(() => resolve()));
+}
+
+export interface HostedRoomSummary {
+  roomId: string;
+  boardId: string;
+  memberCount: number;
+  cardCount: number;
+  parentRoomId?: string;
+}
+
+/**
+ * Rooms this host holds on disk. Deliberately NOT an HTTP route: reaching it
+ * means running inside the host's own process, which is the only proof of
+ * ownership that means anything here. The server secret cannot be the gate --
+ * a complete invitation contains it, so every editor and viewer holds one.
+ */
+export async function listHostedCollaborationRooms(): Promise<HostedRoomSummary[]> {
+  const documents = await roomDocuments.list();
+  return documents
+    .filter(state => !state.parentRoomId)
+    .map(state => ({
+      roomId: state.roomId,
+      boardId: state.boardId,
+      memberCount: Object.keys(state.memberships ?? {}).length,
+      cardCount: state.board.cards.length,
+      ...(state.parentRoomId ? { parentRoomId: state.parentRoomId } : {}),
+    }));
+}
+
+/**
+ * Re-issues owner access for a room this host stores.
+ *
+ * Leaving a room deletes the only copy of its access token, and redeemInvite
+ * refuses to hand an owner a new one -- so before this existed, an owner who
+ * left was locked out of their own room permanently while its data sat intact
+ * on their disk. Existing members keep their access; only the caller's own
+ * membership is rewritten.
+ */
+export async function claimHostedRoomOwnership(
+  roomId: string, identity: CollaborationIdentity,
+): Promise<{ accessToken: string; role: CollaborationRole }> {
+  const room = await getPrivateRoom(roomId);
+  return room.grantOwnership(identity);
 }
 
 function send(socket: WebSocket, message: CollaborationServerMessage): void {

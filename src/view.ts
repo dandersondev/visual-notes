@@ -201,6 +201,10 @@ export class VisualNotesView extends FileView {
       removeMember: (activeRoom, clientId) => this.plugin.removeCollaborationRoomMember(activeRoom, clientId),
       formatInvite: (inviteCode) => this.plugin.formatCollaborationInvite(inviteCode),
       assetClientForRoom: () => this.plugin.createCollaborationAssetClient(),
+      // Only offered while this device is hosting, which is the only place the
+      // room files exist and the only proof of ownership that holds up here.
+      listHostedRooms: () => this.plugin.listHostedRooms(),
+      claimHostedRoom: (roomId) => this.plugin.claimHostedRoom(roomId),
       assetClient,
     };
   }

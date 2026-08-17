@@ -5,6 +5,7 @@ import { CollaborationSession, type CollaborationSessionState } from './collabor
 import type { VisualNotesFile } from './file-types';
 import type { FreeformRenderer } from './freeform-view';
 import type { CollaborationRoomCredentials, CollaborationRoomMember } from './collaboration-rooms';
+import type { HostedRoomSummary } from './collaboration-host';
 import { ConfirmModal } from './tile-modal';
 import { deliverExport } from './asset-manager';
 
@@ -18,6 +19,8 @@ declare module './freeform-view' {
     renderCollaborationPresence(): void;
     publishCollaborationPresence(): void;
     renderCollaborationRoomControls(): void;
+    renderCollaborationLeftRoom(): void;
+    forgetCollaborationRoom(): Promise<void>;
   }
 }
 
@@ -259,14 +262,22 @@ export const collaborationMethods = {
           }).open();
         });
       }
-      const leave = actions.createEl('button', { text: 'Leave', attr: { 'aria-label': 'Leave collaboration room' } });
+      // Leave stops syncing but keeps the room. It used to discard it, and for
+      // an owner that was a one-way door: the access token existed nowhere
+      // else, and the server refuses to hand an owner a new one through an
+      // invite, so leaving your own room locked you out of it permanently
+      // while its data sat intact on the host's disk. Forgetting a room is now
+      // its own deliberate action.
+      const leave = actions.createEl('button', { text: 'Leave', attr: { 'aria-label': 'Stop syncing this board' } });
       leave.addEventListener('click', () => { void (async () => {
         await this.stopCollaboration();
-        if (!this.collaborationConfig) return;
-        this.collaborationConfig.room = undefined;
-        await this.collaborationConfig.saveRoom?.(undefined);
-        this.startCollaboration();
+        this.collaborationLeftRoom = true;
+        this.renderCollaborationLeftRoom();
       })(); });
+      const forget = actions.createEl('button', {
+        text: 'Forget', attr: { 'aria-label': 'Forget this collaboration room on this device' },
+      });
+      forget.addEventListener('click', () => { void this.forgetCollaborationRoom(); });
     }
 
     // Cursors are reused, not rebuilt. Presence arrives many times a second,
@@ -328,6 +339,54 @@ export const collaborationMethods = {
     void session.updatePresence({ selectedIds });
   },
 
+  renderCollaborationLeftRoom(this: FreeformRenderer): void {
+    const config = this.collaborationConfig;
+    if (!config?.room) return;
+    if (!this.collaborationPresenceEl) {
+      this.collaborationPresenceEl = this.outer.createDiv('visual-notes-collaboration-presence');
+      this.collaborationPresenceEl.addEventListener('pointerdown', event => event.stopPropagation());
+    }
+    const host = this.collaborationPresenceEl;
+    host.empty();
+    host.removeClass('is-connected');
+    host.createSpan('visual-notes-collaboration-room-label').setText('Not syncing');
+    const actions = host.createDiv('visual-notes-collaboration-room-actions');
+    const rejoin = actions.createEl('button', {
+      text: 'Rejoin', attr: { 'aria-label': 'Rejoin this collaboration room' },
+    });
+    rejoin.addEventListener('click', () => {
+      this.collaborationLeftRoom = false;
+      this.startCollaboration();
+    });
+    const forget = actions.createEl('button', {
+      text: 'Forget', attr: { 'aria-label': 'Forget this collaboration room on this device' },
+    });
+    forget.addEventListener('click', () => { void this.forgetCollaborationRoom(); });
+  },
+
+  /**
+   * Discards this device's credentials for the room. Deliberately separate
+   * from Leave: for an owner this is irreversible from anywhere but the host,
+   * because the server will not reissue owner access through an invite.
+   */
+  async forgetCollaborationRoom(this: FreeformRenderer): Promise<void> {
+    const config = this.collaborationConfig;
+    if (!config?.room) return;
+    const owner = config.room.role === 'owner';
+    const message = owner
+      ? 'Forget this room on this device?\n\n'
+        + 'You own it. Its data stays on the host, and you can restore access with "Reopen my room" '
+        + 'while hosting. Everyone else keeps the access they already have.'
+      : 'Forget this room on this device?\n\n'
+        + 'You will need an invitation to join it again.';
+    if (!window.confirm(message)) return;
+    await this.stopCollaboration();
+    config.room = undefined;
+    await config.saveRoom?.(undefined);
+    this.collaborationLeftRoom = false;
+    this.startCollaboration();
+  },
+
   renderCollaborationRoomControls(this: FreeformRenderer): void {
     const host = this.collaborationPresenceEl;
     const config = this.collaborationConfig;
@@ -337,6 +396,41 @@ export const collaborationMethods = {
     const actions = host.createDiv('visual-notes-collaboration-room-actions');
     const create = actions.createEl('button', { text: 'Create room' });
     const join = actions.createEl('button', { text: 'Join room' });
+    // Only offered where it can work: recovering owner access reads the room
+    // files, which only the hosting machine has. Attaching happens here rather
+    // than in settings because "this board" is unambiguous on a board and
+    // guesswork anywhere else.
+    if (config.listHostedRooms && config.claimHostedRoom) {
+      const reopen = actions.createEl('button', {
+        text: 'Reopen my room', attr: { 'aria-label': 'Reopen a room hosted on this device' },
+      });
+      reopen.addEventListener('click', () => { void (async () => {
+        reopen.disabled = true;
+        try {
+          const rooms = await config.listHostedRooms!();
+          if (rooms.length === 0) { new Notice('No collaboration rooms are stored on this device yet.'); return; }
+          new HostedRoomPickerModal(this.app, rooms, summary => { void (async () => {
+            try {
+              const room = await config.claimHostedRoom!(summary.roomId);
+              config.room = room;
+              if (config.transportForRoom) config.transport = config.transportForRoom(room);
+              config.assetClient?.destroy();
+              config.assetClient = config.assetClientForRoom?.() ?? config.assetClient;
+              await config.saveRoom?.(room);
+              this.collaborationLeftRoom = false;
+              new Notice('Owner access restored. Use Manage to rotate invitations if you need to share it again.');
+              this.startCollaboration();
+            } catch (error) {
+              new Notice(`Could not reopen the room: ${error instanceof Error ? error.message : String(error)}`, 10000);
+            }
+          })(); }).open();
+        } catch (error) {
+          new Notice(error instanceof Error ? error.message : 'Could not list hosted rooms.', 10000);
+        } finally {
+          reopen.disabled = false;
+        }
+      })(); });
+    }
     create.addEventListener('click', () => { void (async () => {
       create.disabled = true; join.disabled = true;
       try {
@@ -611,4 +705,32 @@ function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
   return (parts.length === 1 ? parts[0].slice(0, 2) : `${parts[0][0]}${parts[parts.length - 1][0]}`).toUpperCase();
+}
+
+/** Picks one of the rooms this device is hosting, to recover access to it. */
+class HostedRoomPickerModal extends Modal {
+  constructor(
+    app: FreeformRenderer['app'],
+    private readonly rooms: HostedRoomSummary[],
+    private readonly choose: (room: HostedRoomSummary) => void,
+  ) { super(app); }
+
+  override onOpen(): void {
+    this.setTitle('Reopen a room hosted on this device');
+    this.contentEl.createEl('p', {
+      text: 'Restores your owner access to a room stored here. Everyone else keeps the access they already have.',
+    });
+    for (const room of this.rooms) {
+      new Setting(this.contentEl)
+        .setName(room.roomId)
+        .setDesc(`${room.cardCount} card${room.cardCount === 1 ? '' : 's'} · `
+          + `${room.memberCount} member${room.memberCount === 1 ? '' : 's'}`)
+        .addButton(button => button.setButtonText('Reopen').setCta().onClick(() => {
+          this.close();
+          this.choose(room);
+        }));
+    }
+  }
+
+  override onClose(): void { this.contentEl.empty(); }
 }

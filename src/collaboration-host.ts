@@ -22,12 +22,34 @@ export type NetworkInterfaceRecords = Record<string, NetworkAddressRecord[] | un
 /** Spelled out rather than NodeJS.Signals, which needs @types/node. */
 type HostedProcessSignal = 'SIGTERM' | 'SIGKILL';
 
+export interface HostedRoomSummary {
+  roomId: string;
+  boardId: string;
+  memberCount: number;
+  cardCount: number;
+  parentRoomId?: string;
+}
+
+/**
+ * The embedded server's in-process API. Not reachable over the network by
+ * design: holding a reference to it means running inside the host's own
+ * Obsidian, which is the only thing here that proves ownership of a room.
+ */
+export interface EmbeddedServerApi {
+  listHostedCollaborationRooms(): Promise<HostedRoomSummary[]>;
+  claimHostedRoomOwnership(
+    roomId: string, identity: { clientId: string; displayName: string; color: string },
+  ): Promise<{ accessToken: string; role: 'owner' }>;
+}
+
 interface HostedProcess {
   readonly exitCode: number | null;
   kill(signal?: HostedProcessSignal): boolean;
   once(event: 'exit', listener: (code: number | null) => void): this;
   once(event: 'error', listener: (error: Error) => void): this;
   stderr?: { on(event: 'data', listener: (chunk: unknown) => void): void } | null;
+  /** Present only for the in-process embedded server. */
+  api?: EmbeddedServerApi;
 }
 
 export interface CollaborationHostRuntime {
@@ -59,6 +81,11 @@ export class CollaborationHostManager {
   constructor(private readonly serverSource: string, private readonly runtime: CollaborationHostRuntime) {}
 
   status(): CollaborationHostStatus { return { ...this.current }; }
+
+  /** undefined unless a server is running in this process right now. */
+  serverApi(): EmbeddedServerApi | undefined {
+    return this.current.state === 'running' ? this.process?.api : undefined;
+  }
 
   async start(options: CollaborationHostStartOptions): Promise<CollaborationHostStatus> {
     await this.stop();

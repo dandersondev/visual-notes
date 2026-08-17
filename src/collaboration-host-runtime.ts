@@ -1,5 +1,5 @@
 import { Platform, requestUrl, type App } from 'obsidian';
-import type { CollaborationHostRuntime, NetworkInterfaceRecords } from './collaboration-host';
+import type { CollaborationHostRuntime, EmbeddedServerApi, NetworkInterfaceRecords } from './collaboration-host';
 
 /**
  * Everything here runs on desktop only, behind Platform.isDesktopApp.
@@ -39,7 +39,7 @@ interface DesktopProcessModule {
 }
 
 /** The contract the embedded server bundle exposes back to the plugin. */
-interface EmbeddedServerModule {
+interface EmbeddedServerModule extends EmbeddedServerApi {
   stopCollaborationServer(): Promise<void>;
 }
 
@@ -135,6 +135,9 @@ export function createDesktopCollaborationHostRuntime(app: App): CollaborationHo
           return hosted;
         },
         stderr: null,
+        // Handed straight through so the plugin can reach the room store
+        // without a network route -- see EmbeddedServerApi.
+        api: serverModule,
       };
       return hosted;
     },

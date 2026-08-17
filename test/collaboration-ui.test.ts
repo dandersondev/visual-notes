@@ -145,12 +145,40 @@ describe('experimental collaboration UI adapter', () => {
     expect(saveRoom).toHaveBeenCalledWith(room);
     expect(renderer.container.textContent).toContain('Copy editor invite');
 
+    // Leaving stops syncing and keeps the room. It used to discard it, which
+    // for an owner was a one-way door: the access token lived nowhere else,
+    // and the server refuses to reissue one to an owner through an invite, so
+    // leaving your own room locked you out of it for good.
     const leave = Array.from(renderer.container.querySelectorAll('button')).find(button => button.textContent === 'Leave');
     leave?.click();
-    await vi.waitFor(() => expect(saveRoom).toHaveBeenLastCalledWith(undefined));
+    await vi.waitFor(() => expect(renderer.container.textContent).toContain('Rejoin'));
     expect(renderer.collaborationSession).toBeNull();
-    expect(saveRoom).toHaveBeenLastCalledWith(undefined);
-    expect(renderer.container.textContent).toContain('Create room');
+    expect(saveRoom).not.toHaveBeenCalledWith(undefined);
+    expect(renderer.collaborationConfig?.room).toEqual(room);
+  });
+
+  it('only discards a room when it is explicitly forgotten', async () => {
+    const transport = new LoopbackCollaborationTransport();
+    const saveRoom = vi.fn(() => Promise.resolve());
+    const room = {
+      roomId: 'private:test-room', accessToken: 'owner-token', role: 'owner' as const,
+      inviteCode: 'VN2-TESTROOMAB-ABCDEFGHIJKL', viewerInviteCode: 'VN2-TESTROOMAB-MNPQRSTUVWY',
+    };
+    const renderer = makeRenderer(transport, alice, {
+      room, saveRoom, transportForRoom: () => transport, joinRoom: vi.fn(), createRoom: vi.fn(),
+    });
+    await vi.waitFor(() => expect(renderer.collaborationSession).not.toBeNull());
+
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    try {
+      const forget = Array.from(renderer.container.querySelectorAll('button')).find(button => button.textContent === 'Forget');
+      expect(forget).toBeTruthy();
+      forget?.click();
+      await vi.waitFor(() => expect(saveRoom).toHaveBeenLastCalledWith(undefined));
+      expect(renderer.collaborationConfig?.room).toBeUndefined();
+    } finally {
+      confirm.mockRestore();
+    }
   });
 
   it('restores optimistic canvas changes for a viewer instead of publishing them', async () => {

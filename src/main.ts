@@ -43,7 +43,7 @@ import {
 import collaborationServerSource from 'visual-notes-collaboration-server-source';
 import {
   CollaborationHostManager, discoverCollaborationHostAddresses,
-  type CollaborationHostAddress, type CollaborationHostStatus,
+  type CollaborationHostAddress, type CollaborationHostStatus, type HostedRoomSummary,
 } from './collaboration-host';
 import { createDesktopCollaborationHostRuntime, desktopNetworkInterfaces } from './collaboration-host-runtime';
 
@@ -127,6 +127,25 @@ export default class VisualNotesPlugin extends Plugin {
 
   /** Shuts the server down without touching the user's intent to host. */
   async stopPrivateNetworkHost(): Promise<void> { await this.collaborationHost?.stop(); }
+
+  /** Rooms this device is hosting right now, for recovering access to one. */
+  listHostedRooms(): Promise<HostedRoomSummary[]> {
+    const api = this.collaborationHost?.serverApi();
+    if (!api) throw new Error('Start hosting to see the rooms stored on this device.');
+    return api.listHostedCollaborationRooms();
+  }
+
+  /**
+   * Re-issues owner access for a room this device hosts. Only possible from
+   * the hosting machine, which is the point: the server secret cannot gate
+   * this because every invitation contains one.
+   */
+  async claimHostedRoom(roomId: string): Promise<CollaborationRoomCredentials> {
+    const api = this.collaborationHost?.serverApi();
+    if (!api) throw new Error('Start hosting before reopening a room stored on this device.');
+    const granted = await api.claimHostedRoomOwnership(roomId, this.currentCollaborationIdentity());
+    return { roomId, accessToken: granted.accessToken, role: granted.role };
+  }
 
   /** The user chose to stop. Do not bring it back on the next launch. */
   async stopPrivateNetworkHostingForGood(): Promise<void> {
