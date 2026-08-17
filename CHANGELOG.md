@@ -7,11 +7,6 @@ All notable user-facing changes to Visual Notes.
 ### Added
 - **Export just the cards you have selected.** Select any cards on a freeform board and the ··· menu offers to export them as a PNG, cropped to what you picked rather than the whole board. Anything overlapping that area is included, so what you see is what you get, and the file is named after the board with "selection" on the end.
 
-### Fixed
-- Confirmation prompts for leaving, forgetting and deleting a collaboration room now use Visual Notes' own dialog instead of the browser's, which used to freeze the whole app until it was answered.
-
-## 1.3.6
-
 ### Changed
 - **Hosting now restarts when you reopen Obsidian.** Previously the room's saved data survived a restart but the room itself did not, so reopening a shared board just failed to connect until you went back into settings and pressed Start hosting. If you were hosting when Obsidian closed, hosting resumes on launch. Pressing **Stop hosting** means stopped: it stays that way until you start it again.
   - Resuming waits for your network. A plugin loads a second or two after Obsidian starts, while a VPN such as Tailscale usually takes longer, so the address to host on is often not there yet on the first look. Visual Notes now waits up to half a minute for it to appear.
@@ -23,6 +18,7 @@ All notable user-facing changes to Visual Notes.
   - **Rooms can be deleted from the same list**, which is the only way to clear out a room you no longer have access to. Deleting removes the room and its shared media from the host for everyone in it; nobody loses their own copy of the board.
 
 ### Fixed
+- Confirmation prompts for leaving, forgetting and deleting a collaboration room now use Visual Notes' own dialog instead of the browser's, which used to freeze the whole app until it was answered.
 - **Visual Notes messages covered the board's own controls.** Obsidian shows notifications in the top-right corner, which is where a board keeps its collaboration bar, search and filter, so a message landed straight on top of them. Messages now appear clear of that column while a board is open, and go back to their usual place everywhere else.
 - **Arrows connected to an image or video sat away from the card when a board was opened**, and only snapped back once the card was resized. Images and videos settle to their true proportions once they finish loading, a moment after the board has already drawn its arrows, and the arrows were not told. They are now redrawn as soon as the card takes its final size, so a board looks right the moment it opens.
 - **Remote cursors lagged and left ghosts behind, worst on iPad.** Every collaborator's cursor was thrown away and rebuilt each time their position arrived, many times a second, and moved in a way that forced the whole board to re-lay-out on each update. Cursors are now reused and moved on their own layer, which removes the stalling and the trail of stuck cursors that built up until something else redrew the screen.
