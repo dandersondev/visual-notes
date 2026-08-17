@@ -8,10 +8,9 @@
 // obsidian-dom-polyfill.ts since they're needed regardless of which
 // Obsidian classes a given file imports.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createRequire } from 'node:module';
-
-(globalThis as typeof globalThis & { __visualNotesNodeRequire?: (id: string) => unknown })
-  .__visualNotesNodeRequire ??= createRequire(import.meta.url);
+// Note: window.require, needed by the collaboration server's Node loader, is
+// set up in obsidian-dom-polyfill.ts — setupFiles run before every test module,
+// whereas this stub only loads for files that import 'obsidian'.
 
 export class TAbstractFile {
   path = '';

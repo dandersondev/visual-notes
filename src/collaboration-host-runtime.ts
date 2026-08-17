@@ -58,7 +58,6 @@ interface CollaborationStorageBridge {
 
 interface CollaborationServerGlobals {
   __visualNotesCollaborationStorage?: CollaborationStorageBridge;
-  __visualNotesNodeRequire?: DesktopModuleLoader;
   __visualNotesCollaborationRequest?: typeof requestUrl;
 }
 
@@ -85,9 +84,10 @@ export function createDesktopCollaborationHostRuntime(app: App): CollaborationHo
       return local.getFullPath(vaultPath);
     },
     spawn(modulePath, environment) {
-      const serverGlobals = globalThis as typeof globalThis & CollaborationServerGlobals;
+      // On `window`, not the ambient global: the embedded server is required
+      // into this same window, so this is where it reads the bridges back off.
+      const serverGlobals = window as Window & CollaborationServerGlobals;
       serverGlobals.__visualNotesCollaborationStorage = createStorageBridge(app);
-      serverGlobals.__visualNotesNodeRequire = desktopRequire();
       serverGlobals.__visualNotesCollaborationRequest = requestUrl;
       const processModule = requireDesktopModule<DesktopProcessModule>('node:process');
       const previous = new Map<string, string | undefined>();
@@ -105,7 +105,6 @@ export function createDesktopCollaborationHostRuntime(app: App): CollaborationHo
         serverModule = loader(resolved) as EmbeddedServerModule;
       } catch (error) {
         delete serverGlobals.__visualNotesCollaborationStorage;
-        delete serverGlobals.__visualNotesNodeRequire;
         delete serverGlobals.__visualNotesCollaborationRequest;
         throw error;
       } finally {
@@ -122,8 +121,7 @@ export function createDesktopCollaborationHostRuntime(app: App): CollaborationHo
           if (exitCode !== null) return false;
           const finish = (): void => {
             delete serverGlobals.__visualNotesCollaborationStorage;
-            delete serverGlobals.__visualNotesNodeRequire;
-            delete serverGlobals.__visualNotesCollaborationRequest;
+                delete serverGlobals.__visualNotesCollaborationRequest;
             exitCode = 0;
             for (const listener of exitListeners.splice(0)) listener(0);
           };

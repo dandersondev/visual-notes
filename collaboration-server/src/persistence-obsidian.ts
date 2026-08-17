@@ -14,9 +14,13 @@ export interface ObsidianCollaborationStorageBridge {
 }
 
 declare global {
-  // Set by the desktop-only plugin host immediately before the embedded
-  // server is loaded. The server cannot start on mobile.
-  var __visualNotesCollaborationStorage: ObsidianCollaborationStorageBridge | undefined;
+  interface Window {
+    // Set by the desktop-only plugin host immediately before the embedded
+    // server is loaded. The server cannot start on mobile. It lives on
+    // `window` rather than the ambient global because this module is only ever
+    // bundled into the embedded build, which runs inside Obsidian's window.
+    __visualNotesCollaborationStorage?: ObsidianCollaborationStorageBridge;
+  }
 }
 
 const storage = requireStorageBridge();
@@ -119,7 +123,7 @@ function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 
 function randomSuffix(): string {
   const bytes = new Uint8Array(8);
-  globalThis.crypto.getRandomValues(bytes);
+  window.crypto.getRandomValues(bytes);
   return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
@@ -128,7 +132,7 @@ function missingFile(path: string): Error & { code: string } {
 }
 
 function requireStorageBridge(): ObsidianCollaborationStorageBridge {
-  const bridge = globalThis.__visualNotesCollaborationStorage;
+  const bridge = window.__visualNotesCollaborationStorage;
   if (!bridge) throw new Error('The Obsidian collaboration storage bridge is unavailable.');
   return bridge;
 }

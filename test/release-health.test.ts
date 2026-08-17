@@ -8,6 +8,23 @@ describe('release health gates', () => {
     expect(bundle).not.toContain('node:fs/promises');
   });
 
+  // Obsidian asks for `window`/`activeWindow` over globalThis, for popout
+  // window compatibility. The bridges the plugin hands the embedded server are
+  // the tempting place to reach for globalThis, so pin them here. The
+  // standalone server's Node loader is supplied as a generated esbuild shim
+  // rather than a source file precisely so this rule can hold everywhere.
+  it('reaches for window rather than globalThis', () => {
+    for (const path of [
+      'src/collaboration-host-runtime.ts',
+      'collaboration-server/src/desktop-node.ts',
+      'collaboration-server/src/persistence-obsidian.ts',
+    ]) {
+      const source = readFileSync(path, 'utf8');
+      const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+      expect(code, path).not.toContain('globalThis');
+    }
+  });
+
   it('keeps collaboration server Node APIs guarded and avoids direct fetch', () => {
     for (const path of [
       'collaboration-server/src/persistence.ts',

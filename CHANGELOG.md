@@ -2,6 +2,14 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.3.3
+
+Two more review findings cleared. No behaviour changes.
+
+### Changed
+- Collaboration now reads its browser globals from the window it is running in, rather than the ambient global object, which is what keeps things working correctly in Obsidian's popout windows.
+- The room server's Node modules are held whole instead of having individual functions pulled off them, so no function can be called detached from the object it belongs to.
+
 ## 1.3.2
 
 Continues clearing Obsidian's review findings. No feature changes; collaboration hosting, images, videos, ranged video playback, nested rooms, and room persistence all behave as before.

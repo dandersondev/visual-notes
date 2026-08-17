@@ -5,7 +5,9 @@ const binary = new Map<string, ArrayBuffer>();
 const folders = new Set<string>();
 
 beforeAll(() => {
-  globalThis.__visualNotesCollaborationStorage = {
+  // The bridge lives on window, matching where the plugin installs it and
+  // where persistence-obsidian.ts reads it.
+  window.__visualNotesCollaborationStorage = {
     exists: path => Promise.resolve(folders.has(path) || text.has(path) || binary.has(path)),
     mkdir: path => { folders.add(path); return Promise.resolve(); },
     list: path => Promise.resolve({

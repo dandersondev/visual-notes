@@ -6,6 +6,25 @@
 // documented signatures in node_modules/obsidian/obsidian.d.ts. Loaded once
 // via vitest's setupFiles (jsdom environment only — see vitest.config.ts).
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { createRequire } from 'node:module';
+
+// Unguarded, and first: this runs in BOTH environments, unlike the DOM
+// patching below. Obsidian exposes Electron's module loader as window.require
+// on desktop, and collaboration-server/src/desktop-node.ts reads it there
+// rather than from globalThis (Obsidian's review asks for window, for popout
+// compatibility). Tests run in plain Node, so stand up window itself under the
+// default environment and give it a real require in both. Done in the setup
+// file rather than obsidian-stub.ts because setupFiles are guaranteed to run
+// before any test module — and the modules that need this do not all import
+// 'obsidian', so the stub is not reliably evaluated first.
+const testWindow = ((globalThis as any).window ??= {}) as {
+  require?: (id: string) => unknown;
+  crypto?: Crypto;
+};
+testWindow.require ??= createRequire(import.meta.url);
+// Real Obsidian's window carries WebCrypto; a bare stand-in window does not,
+// and the collaboration stores use it for temporary-file suffixes.
+testWindow.crypto ??= globalThis.crypto;
 
 interface DomElementInfo {
   cls?: string | string[];

@@ -22,6 +22,28 @@ const standaloneObsidianShim = {
     }));
   },
 };
+// The standalone server runs in plain Node, where there is no `window` to read
+// Electron's loader from. Rather than have desktop-node.ts reach for globalThis
+// -- which Obsidian's review flags, and which is meaningless in a popout window
+// -- the standalone build swaps the module for a createRequire version. Shipped
+// as generated contents, not a checked-in .ts file, so the source tree keeps
+// exactly one desktop-node module and it is the Obsidian one.
+const standaloneDesktopNodeShim = {
+  name: 'standalone-desktop-node-shim',
+  setup(build) {
+    build.onResolve({ filter: /^\.\/desktop-node$/ }, () => ({
+      path: 'desktop-node', namespace: 'standalone-desktop-node',
+    }));
+    build.onLoad({ filter: /.*/, namespace: 'standalone-desktop-node' }, () => ({
+      contents: `
+        import { createRequire } from 'node:module';
+        const nodeRequire = createRequire(import.meta.url);
+        export function requireDesktopNodeModule(id) { return nodeRequire(id); }
+      `,
+      loader: 'js',
+    }));
+  },
+};
 const embeddedObsidianShim = {
   name: 'embedded-obsidian-shim',
   setup(build) {
@@ -45,20 +67,24 @@ const options = {
   platform: 'node',
   format: 'esm',
   target: 'node20',
-  banner: { js: "import { createRequire as __visualNotesCreateRequire } from 'node:module'; const require = __visualNotesCreateRequire(import.meta.url); globalThis.__visualNotesNodeRequire = require;" },
+  // `require` is still needed for the CommonJS dependencies esbuild leaves as
+  // require() calls in an ESM bundle; the shims above cover our own modules.
+  banner: { js: "import { createRequire as __visualNotesCreateRequire } from 'node:module'; const require = __visualNotesCreateRequire(import.meta.url);" },
   outfile: 'dist/server.mjs',
   sourcemap: true,
   // Standalone by design: the desktop plugin embeds this artifact as text and
   // launches it without assuming a release installation contains node_modules.
   logLevel: 'info',
-  plugins: [standaloneObsidianShim],
+  plugins: [standaloneObsidianShim, standaloneDesktopNodeShim],
 };
 
 const embeddedOptions = {
   ...options,
   format: 'cjs',
   outfile: 'dist/server.cjs',
-  banner: { js: "globalThis.__visualNotesNodeRequire = require;" },
+  // No banner: the embedded build keeps the real desktop-node.ts, which reads
+  // Electron's loader off window.
+  banner: undefined,
   sourcemap: false,
   plugins: [embeddedObsidianShim, {
     name: 'obsidian-persistence',
