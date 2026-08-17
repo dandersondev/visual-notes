@@ -20,7 +20,8 @@ declare module './freeform-view' {
     publishCollaborationPresence(): void;
     renderCollaborationRoomControls(): void;
     renderCollaborationLeftRoom(): void;
-    forgetCollaborationRoom(): Promise<void>;
+    forgetCollaborationRoom(): void;
+    discardCollaborationRoom(): Promise<void>;
   }
 }
 
@@ -277,7 +278,7 @@ export const collaborationMethods = {
       const forget = actions.createEl('button', {
         text: 'Forget', attr: { 'aria-label': 'Forget this collaboration room on this device' },
       });
-      forget.addEventListener('click', () => { void this.forgetCollaborationRoom(); });
+      forget.addEventListener('click', () => this.forgetCollaborationRoom());
     }
 
     // Cursors are reused, not rebuilt. Presence arrives many times a second,
@@ -361,7 +362,7 @@ export const collaborationMethods = {
     const forget = actions.createEl('button', {
       text: 'Forget', attr: { 'aria-label': 'Forget this collaboration room on this device' },
     });
-    forget.addEventListener('click', () => { void this.forgetCollaborationRoom(); });
+    forget.addEventListener('click', () => this.forgetCollaborationRoom());
   },
 
   /**
@@ -369,7 +370,7 @@ export const collaborationMethods = {
    * from Leave: for an owner this is irreversible from anywhere but the host,
    * because the server will not reissue owner access through an invite.
    */
-  async forgetCollaborationRoom(this: FreeformRenderer): Promise<void> {
+  forgetCollaborationRoom(this: FreeformRenderer): void {
     const config = this.collaborationConfig;
     if (!config?.room) return;
     const owner = config.room.role === 'owner';
@@ -377,9 +378,15 @@ export const collaborationMethods = {
       ? 'Forget this room on this device?\n\n'
         + 'You own it. Its data stays on the host, and you can restore access with "Reopen my room" '
         + 'while hosting. Everyone else keeps the access they already have.'
-      : 'Forget this room on this device?\n\n'
-        + 'You will need an invitation to join it again.';
-    if (!window.confirm(message)) return;
+      : 'Forget this room on this device? You will need an invitation to join it again.';
+    // ConfirmModal rather than window.confirm: a native dialog blocks the whole
+    // app, and Obsidian's review flags it.
+    new ConfirmModal(this.app, message, () => { void this.discardCollaborationRoom(); }, 'Forget').open();
+  },
+
+  async discardCollaborationRoom(this: FreeformRenderer): Promise<void> {
+    const config = this.collaborationConfig;
+    if (!config) return;
     await this.stopCollaboration();
     config.room = undefined;
     await config.saveRoom?.(undefined);
@@ -751,22 +758,26 @@ class HostedRoomPickerModal extends Modal {
         this.choose(room);
       }));
       if (this.remove) {
-        setting.addButton(button => button.setButtonText('Delete').setWarning().onClick(() => { void (async () => {
-          const confirmed = window.confirm(
-            `Delete "${room.title}"?\n\nThis removes the room and its shared media from this device, for everyone `
-            + 'in it. Nobody loses their own copy of the board.'
-          );
-          if (!confirmed) return;
-          button.setDisabled(true);
-          try {
-            await this.remove!(room);
-            this.rooms = this.rooms.filter(candidate => candidate.roomId !== room.roomId);
-            this.render();
-          } catch (error) {
-            new Notice(`Could not delete the room: ${error instanceof Error ? error.message : String(error)}`, 10000);
-            button.setDisabled(false);
-          }
-        })(); }));
+        // ConfirmModal rather than window.confirm: a native dialog blocks the
+        // whole app, and Obsidian's review flags it.
+        setting.addButton(button => button.setButtonText('Delete').setWarning().onClick(() => {
+          new ConfirmModal(
+            this.app,
+            `Delete "${room.title}"? This removes the room and its shared media from this device, for `
+            + 'everyone in it. Nobody loses their own copy of the board.',
+            () => { void (async () => {
+              button.setDisabled(true);
+              try {
+                await this.remove!(room);
+                this.rooms = this.rooms.filter(candidate => candidate.roomId !== room.roomId);
+                this.render();
+              } catch (error) {
+                new Notice(`Could not delete the room: ${error instanceof Error ? error.message : String(error)}`, 10000);
+                button.setDisabled(false);
+              }
+            })(); },
+          ).open();
+        }));
       }
     }
   }

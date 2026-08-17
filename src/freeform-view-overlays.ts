@@ -57,8 +57,8 @@ declare module './freeform-view' {
     boardIsDark(): boolean;
     renderMinimap(): void;
     computeBoardBBox(): { minX: number; minY: number; maxX: number; maxY: number } | null;
-    computeExportBBox(): { minX: number; minY: number; maxX: number; maxY: number } | null;
-    exportBoard(format: 'png' | 'pdf'): Promise<void>;
+    computeExportBBox(only?: Set<string>): { minX: number; minY: number; maxX: number; maxY: number } | null;
+    exportBoard(format: 'png' | 'pdf', only?: Set<string>): Promise<void>;
     zoomToFit(): void;
     updateMinimapCards(): void;
     updateMinimapViewportRect(): void;
@@ -1074,17 +1074,25 @@ export const overlaysMethods = {
   // end is anchored to a card instead) — content computeBoardBBox's callers
   // (minimap, zoom-to-fit) don't need, but a board export must include so a
   // pen stroke or dangling arrow off to the side doesn't get cropped out.
-  computeExportBBox(this: FreeformRenderer): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  /**
+   * The area an export covers. Given a set of card ids it measures only those,
+   * which is what "export what I selected" needs: the region is the selection's
+   * own bounds rather than the whole board's. Drawings and free-floating
+   * connection endpoints are whole-board concerns and are skipped when
+   * scoping, so a selection cannot be stretched by a stray line elsewhere.
+   */
+  computeExportBBox(this: FreeformRenderer, only?: Set<string>): { minX: number; minY: number; maxX: number; maxY: number } | null {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     let any = false;
     for (const c of this.board.cards) {
+      if (only && !only.has(c.id)) continue;
       const x = c.x ?? 0, y = c.y ?? 0;
       const w = c.w ?? TILE_DEFAULT_W, h = c.h ?? TILE_DEFAULT_H;
       minX = Math.min(minX, x); minY = Math.min(minY, y);
       maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
       any = true;
     }
-    for (const d of this.board.drawings) {
+    for (const d of only ? [] : this.board.drawings) {
       for (const p of d.points) {
         minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
         maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
@@ -1106,11 +1114,14 @@ export const overlaysMethods = {
     return any ? { minX, minY, maxX, maxY } : null;
   },
 
-  async exportBoard(this: FreeformRenderer, format: 'png' | 'pdf'): Promise<void> {
-    const bbox = this.computeExportBBox();
-    if (!bbox) { new Notice('Nothing to export — the board is empty.'); return; }
+  async exportBoard(this: FreeformRenderer, format: 'png' | 'pdf', only?: Set<string>): Promise<void> {
+    const bbox = this.computeExportBBox(only);
+    if (!bbox) {
+      new Notice(only ? 'Nothing to export — no cards are selected.' : 'Nothing to export — the board is empty.');
+      return;
+    }
 
-    const notice = new Notice('Exporting board…', 0);
+    const notice = new Notice(only ? 'Exporting selection…' : 'Exporting board…', 0);
     try {
       const PAD = 40;
       const rawW = Math.max(1, bbox.maxX - bbox.minX) + PAD * 2;
@@ -1146,7 +1157,7 @@ export const overlaysMethods = {
         restoreImages();
       }
 
-      const base = this.file.basename || 'Board';
+      const base = `${this.file.basename || 'Board'}${only ? ' selection' : ''}`;
       if (format === 'png') {
         // deliverExport decides how the file reaches the user: a browser
         // download on desktop, a vault file on mobile, where the download

@@ -30,6 +30,7 @@ import type {
   CalloutCard, GroupCard, CalendarCard, ColumnCard, KanbanColumnCard,
   KanbanBoardCard, DrawingStroke, BookmarkCard, TextCard, Card,
 } from '../src/file-types';
+import { overlaysMethods } from '../src/freeform-view-overlays';
 
 function setup(
   cards: VisualNotesFile['cards'], connections: VisualNotesFile['connections'] = [],
@@ -4083,5 +4084,31 @@ describe('UI smoke: converting an existing video file card', () => {
   it('is not offered for a file that is not a video', () => {
     const { menu } = fileCardMenu('Docs/report.pdf');
     expect(menu.items.some((i: { title: string }) => i.title === 'Play on canvas')).toBe(false);
+  });
+});
+
+// Export area, scoped. The whole-board path measures every card, drawing and
+// free-floating connection endpoint; scoping to a selection must measure only
+// those cards, or "export what I selected" silently exports the whole board.
+describe('scoped export area', () => {
+  it('measures only the selected cards', () => {
+    const renderer = {
+      board: {
+        cards: [
+          { id: 'a', x: 0, y: 0, w: 100, h: 100 },
+          { id: 'b', x: 500, y: 500, w: 100, h: 100 },
+        ],
+        drawings: [{ points: [{ x: 9000, y: 9000 }] }],
+        connections: [],
+      },
+    } as unknown as never;
+
+    const all = overlaysMethods.computeExportBBox.call(renderer);
+    expect(all).toEqual({ minX: 0, minY: 0, maxX: 9000, maxY: 9000 });
+
+    const scoped = overlaysMethods.computeExportBBox.call(renderer, new Set(['a']));
+    expect(scoped).toEqual({ minX: 0, minY: 0, maxX: 100, maxY: 100 });
+
+    expect(overlaysMethods.computeExportBBox.call(renderer, new Set(['missing']))).toBeNull();
   });
 });

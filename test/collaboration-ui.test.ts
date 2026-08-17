@@ -169,16 +169,21 @@ describe('experimental collaboration UI adapter', () => {
     });
     await vi.waitFor(() => expect(renderer.collaborationSession).not.toBeNull());
 
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    try {
-      const forget = Array.from(renderer.container.querySelectorAll('button')).find(button => button.textContent === 'Forget');
-      expect(forget).toBeTruthy();
-      forget?.click();
-      await vi.waitFor(() => expect(saveRoom).toHaveBeenLastCalledWith(undefined));
-      expect(renderer.collaborationConfig?.room).toBeUndefined();
-    } finally {
-      confirm.mockRestore();
-    }
+    // Forget opens a confirmation and does nothing on its own. Asserted rather
+    // than driven, because the point of the button is that it is not the
+    // discard -- a Forget that discarded immediately would pass a test that
+    // only checked the end state.
+    const forget = Array.from(renderer.container.querySelectorAll('button')).find(button => button.textContent === 'Forget');
+    expect(forget).toBeTruthy();
+    forget?.click();
+    await Promise.resolve();
+    expect(saveRoom).not.toHaveBeenCalledWith(undefined);
+    expect(renderer.collaborationConfig?.room).toEqual(room);
+
+    // Confirming runs this, which is what the modal's callback invokes.
+    await renderer.discardCollaborationRoom();
+    expect(saveRoom).toHaveBeenLastCalledWith(undefined);
+    expect(renderer.collaborationConfig?.room).toBeUndefined();
   });
 
   it('restores optimistic canvas changes for a viewer instead of publishing them', async () => {

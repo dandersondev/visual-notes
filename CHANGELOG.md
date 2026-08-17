@@ -2,6 +2,14 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.0
+
+### Added
+- **Export just the cards you have selected.** Select any cards on a freeform board and the ··· menu offers to export them as a PNG, cropped to what you picked rather than the whole board. Anything overlapping that area is included, so what you see is what you get, and the file is named after the board with "selection" on the end.
+
+### Fixed
+- Confirmation prompts for leaving, forgetting and deleting a collaboration room now use Visual Notes' own dialog instead of the browser's, which used to freeze the whole app until it was answered.
+
 ## 1.3.6
 
 ### Changed

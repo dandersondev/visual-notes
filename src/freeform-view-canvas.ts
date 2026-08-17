@@ -601,6 +601,16 @@ export const canvasMethods = {
       }));
       menu.addItem(i => i.setTitle('Export as PNG…').setIcon('image-down').onClick(() => void this.exportBoard('png')));
       menu.addItem(i => i.setTitle('Export as PDF…').setIcon('file-down').onClick(() => void this.exportBoard('pdf')));
+      // Offered only when there is a selection, because the whole-board items
+      // above already cover the empty case and a disabled entry explains less
+      // than an absent one.
+      const selectedIds = this.selection.getIds();
+      if (selectedIds.length > 0) {
+        menu.addItem(i => i
+          .setTitle(`Export ${selectedIds.length} selected as PNG…`)
+          .setIcon('image-down')
+          .onClick(() => void this.exportBoard('png', new Set(selectedIds))));
+      }
       menu.showAtMouseEvent(e);
     });
 

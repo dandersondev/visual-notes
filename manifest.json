@@ -1,7 +1,7 @@
 {
   "id": "visual-notes",
   "name": "Visual Notes",
-  "version": "1.3.6",
+  "version": "1.4.0",
   "minAppVersion": "1.7.2",
   "description": "A visual workspace built on the Canvas format: storyboards for planning a scene shot by shot, nestable freeform boards, icon tile grids, kanban boards, sticky notes, checklists, columns, drawing with pen and highlighter, and more.",
   "author": "Daniel Anderson",
