@@ -177,7 +177,7 @@ export class VisualNotesView extends FileView {
       // `websocket` now decides only the three eager values above: the initial
       // transport, room, and asset client.
       transportForRoom: (nextRoom) => this.plugin.getCollaborationTransport(nextRoom),
-      createRoom: (initialBoard) => this.plugin.createCollaborationRoom(initialBoard),
+      createRoom: (initialBoard) => this.plugin.createCollaborationRoom(initialBoard, file.basename),
       joinRoom: (inviteCode) => this.plugin.resolveCollaborationRoom(inviteCode),
       saveRoom: (nextRoom) => {
         saveBoardRoom(window.localStorage, this.app.vault.getName(), file.path, nextRoom);

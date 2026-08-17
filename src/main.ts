@@ -245,13 +245,13 @@ export default class VisualNotesPlugin extends Plugin {
     });
   }
 
-  createCollaborationRoom(board: VisualNotesFile): Promise<CollaborationRoomCredentials> {
+  createCollaborationRoom(board: VisualNotesFile, label?: string): Promise<CollaborationRoomCredentials> {
     const url = this.collaborationServerUrl();
     const identity = ensureCollaborationIdentity(
       this.settings, undefined, window.localStorage, this.app.vault.getName()
     ).identity;
     return createCollaborationRoom(
-      url, this.collaborationServiceToken(), board, identity
+      url, this.collaborationServiceToken(), board, identity, label
     );
   }
 

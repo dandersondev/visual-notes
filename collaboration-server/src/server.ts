@@ -54,6 +54,9 @@ interface PersistedRoom {
   assets?: Record<string, PersistedAsset>;
   parentRoomId?: string;
   childKey?: string;
+  /** The board's name when the room was created. Rooms made before this
+   *  existed have none, and fall back to a summary of their contents. */
+  label?: string;
 }
 
 interface PersistedAsset { mimeType: string; size: number; name?: string; createdAt: number; orphanedAt?: number }
@@ -123,6 +126,7 @@ class HostedRoom {
     owner: CollaborationIdentity,
     initialBoard: VisualNotesFile,
     principal: ServicePrincipal,
+    label?: string,
   ): Promise<{ room: HostedRoom; accessToken: string; editorInviteCode: string; viewerInviteCode: string }> {
     const locator = randomCode(10);
     const roomId = `private:${locator}`;
@@ -132,6 +136,7 @@ class HostedRoom {
     const state: PersistedRoom = {
       formatVersion: 3, roomId, boardId: roomId, board: structuredClone(initialBoard),
       sequence: 0, maxLogicalClock: 0, operations: [],
+      ...(label ? { label } : {}),
       memberships: {
         [owner.clientId]: {
           role: 'owner', accessTokenHash: hash(accessToken), displayName: owner.displayName, joinedAt: Date.now(),
@@ -802,7 +807,8 @@ const httpServer = createServer((request, response) => { void (async () => {
       } else if (request.url === '/rooms') {
         const initialBoard = validateInitialBoard(body.initialBoard);
         const identity = validateIdentity(body.identity);
-        const created = await HostedRoom.createPrivate(identity, initialBoard, servicePrincipal);
+        const label = typeof body.label === 'string' && body.label.trim() ? body.label.trim().slice(0, 120) : undefined;
+        const created = await HostedRoom.createPrivate(identity, initialBoard, servicePrincipal, label);
         rooms.set(created.room.roomId, Promise.resolve(created.room));
         jsonResponse(response, 201, {
           roomId: created.room.roomId, accessToken: created.accessToken, role: 'owner',
@@ -965,6 +971,9 @@ export async function stopCollaborationServer(): Promise<void> {
 export interface HostedRoomSummary {
   roomId: string;
   boardId: string;
+  /** What to show a person: the board's name, or a summary of its contents. */
+  title: string;
+  memberNames: string[];
   memberCount: number;
   cardCount: number;
   parentRoomId?: string;
@@ -983,10 +992,33 @@ export async function listHostedCollaborationRooms(): Promise<HostedRoomSummary[
     .map(state => ({
       roomId: state.roomId,
       boardId: state.boardId,
+      title: state.label?.trim() || describeBoard(state.board),
+      memberNames: Object.values(state.memberships ?? {}).map(member => member.displayName).filter(Boolean),
       memberCount: Object.keys(state.memberships ?? {}).length,
       cardCount: state.board.cards.length,
       ...(state.parentRoomId ? { parentRoomId: state.parentRoomId } : {}),
     }));
+}
+
+/**
+ * A name for a room created before rooms carried one. The room ID is random,
+ * and a private room's boardId is just the room ID again, so the only thing
+ * left that a person can recognise is what is actually on the board.
+ */
+function describeBoard(board: VisualNotesFile): string {
+  const words: string[] = [];
+  for (const card of board.cards) {
+    const value = card as Partial<Record<'title' | 'label' | 'text' | 'caption' | 'name', unknown>>;
+    for (const key of ['title', 'label', 'text', 'caption', 'name'] as const) {
+      const candidate = value[key];
+      if (typeof candidate !== 'string') continue;
+      const cleaned = candidate.replace(/\s+/g, ' ').trim();
+      if (cleaned) { words.push(cleaned.slice(0, 40)); break; }
+    }
+    if (words.length === 3) break;
+  }
+  if (words.length === 0) return `Untitled board (${board.cards.length} cards)`;
+  return words.join(' · ');
 }
 
 /**

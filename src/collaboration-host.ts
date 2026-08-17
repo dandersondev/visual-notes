@@ -25,6 +25,9 @@ type HostedProcessSignal = 'SIGTERM' | 'SIGKILL';
 export interface HostedRoomSummary {
   roomId: string;
   boardId: string;
+  /** What to show a person: the board's name, or a summary of its contents. */
+  title: string;
+  memberNames: string[];
   memberCount: number;
   cardCount: number;
   parentRoomId?: string;

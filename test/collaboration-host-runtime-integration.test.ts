@@ -102,7 +102,71 @@ describe('embedded desktop host runtime', () => {
       Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
     }
   });
+
+  // The in-process API is what lets an owner who left recover their own room,
+  // and it is unreachable over the network by design -- so this is the only
+  // place it can be exercised at all.
+  it('names hosted rooms so a person can tell them apart', async () => {
+    const originalWindow = globalThis.window;
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { require: createRequire(import.meta.url), setTimeout, clearTimeout },
+    });
+    try {
+      temporaryDirectory = await mkdtemp(join(tmpdir(), 'visual-notes-host-'));
+      const port = await availablePort();
+      const source = await readFile('collaboration-server/dist/server.cjs', 'utf8');
+      const manager = new CollaborationHostManager(
+        source, createDesktopCollaborationHostRuntime(fakeApp(temporaryDirectory)),
+      );
+      const token = 'worker-runtime-test-token-123456789';
+      const status = await manager.start({
+        address: { address: '127.0.0.1', name: 'Test loopback', kind: 'private-lan' as const },
+        port, token, runtimeDirectory: 'runtime', dataDirectory: 'data',
+      });
+      expect(status.state).toBe('running');
+      const identity = { clientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', displayName: 'Alice', color: '#e57373' };
+      const board = (text: string) => ({
+        version: 3, layout: 'freeform', connections: [], drawings: [],
+        cards: [{ id: 'a', kind: 'sticky', text, color: '#fff' }],
+      });
+
+      const named = await createRoom(port, token, { initialBoard: board('ignored'), identity, label: 'Trip planning' });
+      // A room made before rooms carried a name falls back to its contents,
+      // which is what every existing room will do.
+      const unnamed = await createRoom(port, token, { initialBoard: board('Rooftop scene'), identity });
+
+      const rooms = await manager.serverApi()!.listHostedCollaborationRooms();
+      const byId = new Map(rooms.map(room => [room.roomId, room]));
+      expect(byId.get(named.roomId)?.title).toBe('Trip planning');
+      expect(byId.get(unnamed.roomId)?.title).toBe('Rooftop scene');
+      // Never the raw identifier, which is the whole complaint.
+      expect(byId.get(unnamed.roomId)?.title).not.toContain('private:');
+      expect(byId.get(named.roomId)?.memberNames).toEqual(['Alice']);
+
+      // And the recovery itself: a fresh owner token for the same client.
+      const claimed = await manager.serverApi()!.claimHostedRoomOwnership(named.roomId, identity);
+      expect(claimed.role).toBe('owner');
+      expect(claimed.accessToken).not.toBe(named.accessToken);
+
+      await manager.stop();
+    } finally {
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
+    }
+  });
 });
+
+async function createRoom(
+  port: number, token: string, body: Record<string, unknown>,
+): Promise<{ roomId: string; accessToken: string }> {
+  const response = await fetch(`http://127.0.0.1:${port}/rooms`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`Create room failed: ${response.status} ${await response.text()}`);
+  return await response.json() as { roomId: string; accessToken: string };
+}
 
 function availablePort(): Promise<number> {
   return new Promise((resolve, reject) => {

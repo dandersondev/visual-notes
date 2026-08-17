@@ -55,7 +55,7 @@ export interface FreeformCollaborationConfig {
   label?: string;
   room?: CollaborationRoomCredentials;
   transportForRoom?: (room: CollaborationRoomCredentials) => CollaborationTransport;
-  createRoom?: (board: VisualNotesFile) => Promise<CollaborationRoomCredentials>;
+  createRoom?: (board: VisualNotesFile, label?: string) => Promise<CollaborationRoomCredentials>;
   joinRoom?: (inviteCode: string) => Promise<CollaborationRoomCredentials>;
   saveRoom?: (room: CollaborationRoomCredentials | undefined) => Promise<void>;
   /** Host-only: rooms stored on this device, and recovering owner access to one. */

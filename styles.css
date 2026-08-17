@@ -8364,3 +8364,12 @@ button.visual-notes-collaboration-colour-swatch.is-selected {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--visual-notes-collaborator-color) 25%, transparent);
   pointer-events: none;
 }
+
+/* The room's random identifier, kept available but visually subordinate to
+   the board name: it identifies the room to the server, not to a person. */
+.visual-notes-collaboration-room-id {
+  margin-top: 2px;
+  color: var(--text-faint);
+  font-family: var(--font-monospace);
+  font-size: var(--font-smallest);
+}

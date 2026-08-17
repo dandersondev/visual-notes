@@ -721,16 +721,33 @@ class HostedRoomPickerModal extends Modal {
       text: 'Restores your owner access to a room stored here. Everyone else keeps the access they already have.',
     });
     for (const room of this.rooms) {
-      new Setting(this.contentEl)
-        .setName(room.roomId)
-        .setDesc(`${room.cardCount} card${room.cardCount === 1 ? '' : 's'} · `
-          + `${room.memberCount} member${room.memberCount === 1 ? '' : 's'}`)
-        .addButton(button => button.setButtonText('Reopen').setCta().onClick(() => {
-          this.close();
-          this.choose(room);
-        }));
+      // Named by the board it was created from, falling back to a summary of
+      // what is on it. The room ID identifies nothing to a person -- it is
+      // random, and a private room's boardId is just the room ID again -- so
+      // it is shown quietly underneath rather than as the heading.
+      const setting = new Setting(this.contentEl).setName(room.title);
+      const details = [
+        `${room.cardCount} card${room.cardCount === 1 ? '' : 's'}`,
+        room.memberNames.length > 0
+          ? `shared with ${formatNameList(room.memberNames)}`
+          : `${room.memberCount} member${room.memberCount === 1 ? '' : 's'}`,
+      ];
+      setting.setDesc(details.join(' · '));
+      setting.descEl.createDiv({ cls: 'visual-notes-collaboration-room-id', text: room.roomId });
+      setting.addButton(button => button.setButtonText('Reopen').setCta().onClick(() => {
+        this.close();
+        this.choose(room);
+      }));
     }
   }
 
   override onClose(): void { this.contentEl.empty(); }
+}
+
+/** "Alice", "Alice and Bob", "Alice, Bob and 2 others". */
+function formatNameList(names: string[]): string {
+  const unique = [...new Set(names)];
+  if (unique.length === 1) return unique[0];
+  if (unique.length === 2) return `${unique[0]} and ${unique[1]}`;
+  return `${unique[0]}, ${unique[1]} and ${unique.length - 2} other${unique.length - 2 === 1 ? '' : 's'}`;
 }

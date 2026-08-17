@@ -69,8 +69,12 @@ export async function createCollaborationRoom(
   serviceToken: CollaborationServiceToken,
   initialBoard: VisualNotesFile,
   identity: CollaborationIdentity,
+  label?: string,
 ): Promise<CollaborationRoomCredentials> {
-  return roomRequest(websocketUrl, '/rooms', serviceToken, { initialBoard, identity });
+  // The board's name travels with the room so the host can recognise it
+  // later. A room ID is random and a private room's boardId is the room ID
+  // again, so without this there is nothing human to show.
+  return roomRequest(websocketUrl, '/rooms', serviceToken, { initialBoard, identity, label });
 }
 
 export async function resolveCollaborationRoom(
