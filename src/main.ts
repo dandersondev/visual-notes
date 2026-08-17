@@ -140,6 +140,13 @@ export default class VisualNotesPlugin extends Plugin {
    * the hosting machine, which is the point: the server secret cannot gate
    * this because every invitation contains one.
    */
+  /** Deletes a room stored on this device, with everything nested under it. */
+  async deleteHostedRoom(roomId: string): Promise<{ deletedRooms: number; deletedFiles: number }> {
+    const api = this.collaborationHost?.serverApi();
+    if (!api) throw new Error('Start hosting before deleting a room stored on this device.');
+    return api.deleteHostedCollaborationRoom(roomId);
+  }
+
   async claimHostedRoom(roomId: string): Promise<CollaborationRoomCredentials> {
     const api = this.collaborationHost?.serverApi();
     if (!api) throw new Error('Start hosting before reopening a room stored on this device.');

@@ -423,7 +423,9 @@ export const collaborationMethods = {
             } catch (error) {
               new Notice(`Could not reopen the room: ${error instanceof Error ? error.message : String(error)}`, 10000);
             }
-          })(); }).open();
+          })(); }, config.deleteHostedRoom
+            ? async summary => { await config.deleteHostedRoom!(summary.roomId); }
+            : undefined).open();
         } catch (error) {
           new Notice(error instanceof Error ? error.message : 'Could not list hosted rooms.', 10000);
         } finally {
@@ -711,15 +713,24 @@ function initials(name: string): string {
 class HostedRoomPickerModal extends Modal {
   constructor(
     app: FreeformRenderer['app'],
-    private readonly rooms: HostedRoomSummary[],
+    private rooms: HostedRoomSummary[],
     private readonly choose: (room: HostedRoomSummary) => void,
+    private readonly remove?: (room: HostedRoomSummary) => Promise<void>,
   ) { super(app); }
 
-  override onOpen(): void {
-    this.setTitle('Reopen a room hosted on this device');
+  override onOpen(): void { this.render(); }
+
+  private render(): void {
+    this.contentEl.empty();
+    this.setTitle('Rooms hosted on this device');
     this.contentEl.createEl('p', {
-      text: 'Restores your owner access to a room stored here. Everyone else keeps the access they already have.',
+      text: 'Reopen restores your owner access to a room; everyone else keeps theirs. '
+        + 'Delete removes the room and its shared media from this device, for everyone in it.',
     });
+    if (this.rooms.length === 0) {
+      this.contentEl.createEl('p', { text: 'No rooms are stored on this device.' });
+      return;
+    }
     for (const room of this.rooms) {
       // Named by the board it was created from, falling back to a summary of
       // what is on it. The room ID identifies nothing to a person -- it is
@@ -732,12 +743,31 @@ class HostedRoomPickerModal extends Modal {
           ? `shared with ${formatNameList(room.memberNames)}`
           : `${room.memberCount} member${room.memberCount === 1 ? '' : 's'}`,
       ];
+      if (room.updatedAt) details.push(`last active ${formatWhen(room.updatedAt)}`);
       setting.setDesc(details.join(' · '));
       setting.descEl.createDiv({ cls: 'visual-notes-collaboration-room-id', text: room.roomId });
       setting.addButton(button => button.setButtonText('Reopen').setCta().onClick(() => {
         this.close();
         this.choose(room);
       }));
+      if (this.remove) {
+        setting.addButton(button => button.setButtonText('Delete').setWarning().onClick(() => { void (async () => {
+          const confirmed = window.confirm(
+            `Delete "${room.title}"?\n\nThis removes the room and its shared media from this device, for everyone `
+            + 'in it. Nobody loses their own copy of the board.'
+          );
+          if (!confirmed) return;
+          button.setDisabled(true);
+          try {
+            await this.remove!(room);
+            this.rooms = this.rooms.filter(candidate => candidate.roomId !== room.roomId);
+            this.render();
+          } catch (error) {
+            new Notice(`Could not delete the room: ${error instanceof Error ? error.message : String(error)}`, 10000);
+            button.setDisabled(false);
+          }
+        })(); }));
+      }
     }
   }
 
@@ -750,4 +780,13 @@ function formatNameList(names: string[]): string {
   if (unique.length === 1) return unique[0];
   if (unique.length === 2) return `${unique[0]} and ${unique[1]}`;
   return `${unique[0]}, ${unique[1]} and ${unique.length - 2} other${unique.length - 2 === 1 ? '' : 's'}`;
+}
+
+/** "today", "yesterday", "12 Aug 2026" -- enough to spot a room long finished with. */
+function formatWhen(timestamp: number): string {
+  const days = Math.floor((Date.now() - timestamp) / 86_400_000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 30) return `${days} days ago`;
+  return new Date(timestamp).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }

@@ -57,6 +57,8 @@ interface PersistedRoom {
   /** The board's name when the room was created. Rooms made before this
    *  existed have none, and fall back to a summary of their contents. */
   label?: string;
+  /** Last write. Absent on rooms saved before this existed. */
+  updatedAt?: number;
 }
 
 interface PersistedAsset { mimeType: string; size: number; name?: string; createdAt: number; orphanedAt?: number }
@@ -496,6 +498,7 @@ class HostedRoom {
   }
 
   private async persist(): Promise<void> {
+    this.state.updatedAt = Date.now();
     await roomDocuments.save(this.state.roomId, this.state);
   }
 
@@ -976,6 +979,8 @@ export interface HostedRoomSummary {
   memberNames: string[];
   memberCount: number;
   cardCount: number;
+  /** Last write, for telling a live room from one long finished with. */
+  updatedAt?: number;
   parentRoomId?: string;
 }
 
@@ -996,6 +1001,7 @@ export async function listHostedCollaborationRooms(): Promise<HostedRoomSummary[
       memberNames: Object.values(state.memberships ?? {}).map(member => member.displayName).filter(Boolean),
       memberCount: Object.keys(state.memberships ?? {}).length,
       cardCount: state.board.cards.length,
+      ...(state.updatedAt ? { updatedAt: state.updatedAt } : {}),
       ...(state.parentRoomId ? { parentRoomId: state.parentRoomId } : {}),
     }));
 }
@@ -1005,6 +1011,25 @@ export async function listHostedCollaborationRooms(): Promise<HostedRoomSummary[
  * and a private room's boardId is just the room ID again, so the only thing
  * left that a person can recognise is what is actually on the board.
  */
+/**
+ * Several card kinds store their text as HTML, because they are edited in a
+ * contentEditable. Using the raw value put <div> and <br> straight into room
+ * names, so strip tags and decode the handful of entities that produces
+ * before anything is shown to a person.
+ */
+function plainText(value: string): string {
+  return value
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0*39;|&apos;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function describeBoard(board: VisualNotesFile): string {
   const words: string[] = [];
   for (const card of board.cards) {
@@ -1012,7 +1037,7 @@ function describeBoard(board: VisualNotesFile): string {
     for (const key of ['title', 'label', 'text', 'caption', 'name'] as const) {
       const candidate = value[key];
       if (typeof candidate !== 'string') continue;
-      const cleaned = candidate.replace(/\s+/g, ' ').trim();
+      const cleaned = plainText(candidate);
       if (cleaned) { words.push(cleaned.slice(0, 40)); break; }
     }
     if (words.length === 3) break;
@@ -1030,6 +1055,20 @@ function describeBoard(board: VisualNotesFile): string {
  * on their disk. Existing members keep their access; only the caller's own
  * membership is rewritten.
  */
+/**
+ * Deletes a room and everything nested under it, from the host that stores
+ * it. Same in-process gate as the rest of this API, and the same reason: an
+ * owner who left cannot authenticate, so the ordinary owner-token route
+ * cannot reach the rooms most likely to need clearing out.
+ */
+export async function deleteHostedCollaborationRoom(
+  roomId: string,
+): Promise<{ deletedRooms: number; deletedFiles: number }> {
+  const room = await getPrivateRoom(roomId).catch(() => undefined);
+  room?.closeForDeletion();
+  return deleteCollaborationSubtree(roomId);
+}
+
 export async function claimHostedRoomOwnership(
   roomId: string, identity: CollaborationIdentity,
 ): Promise<{ accessToken: string; role: CollaborationRole }> {

@@ -30,6 +30,8 @@ export interface HostedRoomSummary {
   memberNames: string[];
   memberCount: number;
   cardCount: number;
+  /** Last write, for telling a live room from one long finished with. */
+  updatedAt?: number;
   parentRoomId?: string;
 }
 
@@ -43,6 +45,7 @@ export interface EmbeddedServerApi {
   claimHostedRoomOwnership(
     roomId: string, identity: { clientId: string; displayName: string; color: string },
   ): Promise<{ accessToken: string; role: 'owner' }>;
+  deleteHostedCollaborationRoom(roomId: string): Promise<{ deletedRooms: number; deletedFiles: number }>;
 }
 
 interface HostedProcess {

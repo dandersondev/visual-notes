@@ -135,19 +135,33 @@ describe('embedded desktop host runtime', () => {
       // A room made before rooms carried a name falls back to its contents,
       // which is what every existing room will do.
       const unnamed = await createRoom(port, token, { initialBoard: board('Rooftop scene'), identity });
+      // Several card kinds hold their text as HTML, because they are edited in
+      // a contentEditable -- so the raw value put <div> and <br> into names.
+      const markup = await createRoom(port, token, {
+        initialBoard: board('<div>Weekly&nbsp;plan<br>second line</div>'), identity,
+      });
 
       const rooms = await manager.serverApi()!.listHostedCollaborationRooms();
       const byId = new Map(rooms.map(room => [room.roomId, room]));
       expect(byId.get(named.roomId)?.title).toBe('Trip planning');
       expect(byId.get(unnamed.roomId)?.title).toBe('Rooftop scene');
+      expect(byId.get(markup.roomId)?.title).toBe('Weekly plan second line');
       // Never the raw identifier, which is the whole complaint.
       expect(byId.get(unnamed.roomId)?.title).not.toContain('private:');
       expect(byId.get(named.roomId)?.memberNames).toEqual(['Alice']);
+      expect(byId.get(named.roomId)?.updatedAt).toBeGreaterThan(0);
 
       // And the recovery itself: a fresh owner token for the same client.
       const claimed = await manager.serverApi()!.claimHostedRoomOwnership(named.roomId, identity);
       expect(claimed.role).toBe('owner');
       expect(claimed.accessToken).not.toBe(named.accessToken);
+
+      // Clearing out a room takes it off the host for good.
+      const deleted = await manager.serverApi()!.deleteHostedCollaborationRoom(markup.roomId);
+      expect(deleted.deletedRooms).toBe(1);
+      const remaining = await manager.serverApi()!.listHostedCollaborationRooms();
+      expect(remaining.map(room => room.roomId)).not.toContain(markup.roomId);
+      expect(remaining).toHaveLength(2);
 
       await manager.stop();
     } finally {

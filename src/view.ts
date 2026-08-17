@@ -205,6 +205,7 @@ export class VisualNotesView extends FileView {
       // room files exist and the only proof of ownership that holds up here.
       listHostedRooms: () => this.plugin.listHostedRooms(),
       claimHostedRoom: (roomId) => this.plugin.claimHostedRoom(roomId),
+      deleteHostedRoom: (roomId) => this.plugin.deleteHostedRoom(roomId),
       assetClient,
     };
   }

@@ -61,6 +61,7 @@ export interface FreeformCollaborationConfig {
   /** Host-only: rooms stored on this device, and recovering owner access to one. */
   listHostedRooms?: () => Promise<HostedRoomSummary[]>;
   claimHostedRoom?: (roomId: string) => Promise<CollaborationRoomCredentials>;
+  deleteHostedRoom?: (roomId: string) => Promise<{ deletedRooms: number; deletedFiles: number }>;
   listMembers?: (room: CollaborationRoomCredentials) => Promise<CollaborationRoomMember[]>;
   getRoomStorage?: (room: CollaborationRoomCredentials) => Promise<CollaborationRoomStorage>;
   getRoomTree?: (room: CollaborationRoomCredentials) => Promise<CollaborationRoomTreeEntry[]>;
