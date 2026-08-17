@@ -541,6 +541,11 @@ export default class VisualNotesPlugin extends Plugin {
       })
     );
 
+    // Keeps the board marker on the body in step with what is actually open,
+    // including boards restored on startup and the last one being closed.
+    this.registerEvent(this.app.workspace.on('layout-change', () => this.syncBoardBodyClass()));
+    this.app.workspace.onLayoutReady(() => this.syncBoardBodyClass());
+
     // Ribbon — opens (or focuses) the default board. Right-click for more
     // options: left-click alone gave no way to create an *additional*
     // board once one already existed (the ribbon would just refocus the
@@ -730,6 +735,7 @@ export default class VisualNotesPlugin extends Plugin {
   }
 
   override onunload(): void {
+    document.body.classList.remove('visual-notes-board-open');
     void this.stopPrivateNetworkHost();
     // Removes the class from every row it added it to, so disabling the
     // plugin leaves the explorer exactly as Obsidian drew it.
@@ -876,6 +882,17 @@ export default class VisualNotesPlugin extends Plugin {
   // inheritance, so setting them here updates every open board live in one
   // shot — no need to reach into each board's individual FreeformRenderer
   // instance.
+  /**
+   * Marks the body while a board is on screen, so the notice shift in
+   * styles.css applies there and nowhere else. Obsidian's notice container is
+   * app-wide -- moving it unconditionally would relocate every plugin's
+   * messages, which is not ours to do.
+   */
+  syncBoardBodyClass(): void {
+    const open = this.app.workspace.getLeavesOfType(VISUAL_NOTES_VIEW_TYPE).length > 0;
+    document.body.classList.toggle('visual-notes-board-open', open);
+  }
+
   applyCanvasAppearanceSettings(): void {
     if (this.settings.dotColor) document.body.style.setProperty('--visual-notes-dot-color', this.settings.dotColor);
     else document.body.style.removeProperty('--visual-notes-dot-color');

@@ -8373,3 +8373,13 @@ button.visual-notes-collaboration-colour-swatch.is-selected {
   font-family: var(--font-monospace);
   font-size: var(--font-smallest);
 }
+
+/* Obsidian shows notices in the top-right, which is exactly where a board
+   stacks its collaboration bar, search and filter -- so a message like
+   "Visual Notes: board set for clips" landed on top of them. Shifted clear of
+   that column, and only while a board is open: the notice container belongs
+   to the whole app, so moving it unconditionally would relocate every other
+   plugin's messages too. Clamped so a narrow window keeps it on screen. */
+body.visual-notes-board-open .notice-container {
+  right: clamp(16px, 26vw, 360px);
+}
