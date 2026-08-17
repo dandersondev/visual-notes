@@ -1,4 +1,4 @@
-import { Plugin, TFile, TFolder, TAbstractFile, FileView, Menu, Notice } from 'obsidian';
+import { Plugin, TFile, TFolder, TAbstractFile, FileView, FileSystemAdapter, Menu, Notice, Platform, apiVersion } from 'obsidian';
 import { VisualNotesView, VISUAL_NOTES_VIEW_TYPE, NATIVE_CANVAS_VIEW_TYPE } from './view';
 import { VisualNotesSettingsTab } from './settings';
 import { VisualNotesSettings, DEFAULT_SETTINGS } from './types';
@@ -13,14 +13,313 @@ import { ExplorerDecorator } from './explorer-decor';
 // rather than one each, short enough that a single clip still feels immediate.
 const CLIP_IMPORT_DEBOUNCE_MS = 800;
 import { normalizeSettings } from './settings-validate';
+import { ensureCollaborationIdentity } from './collaboration-identity';
 import { CreateBoardModal, TemplatePickerModal, TemplateChoice } from './create-board-modal';
 import { needsMigration, migrateV1toV2 } from './migration';
 import { relinkAllBoards } from './asset-manager';
 import { isVisualNotesOwnedFile, listTemplates, createBoardFileFromTemplate, installStarterTemplate, TEMPLATES_FOLDER, promptSaveBoardAsTemplate, backupBeforeNativeEdit, NATIVE_BAK_SUFFIX } from './file-io';
 import { STARTER_TEMPLATES } from './starter-templates';
+import { LoopbackCollaborationTransport } from './collaboration-transport';
+import type { CollaborationTransport } from './collaboration-transport';
+import { isSafeCollaborationServerUrl, WebSocketCollaborationTransport } from './collaboration-websocket-transport';
+import {
+  cleanupCollaborationRoomAssets, createCollaborationChildRoom, createCollaborationRoom, deleteCollaborationRoom, exportCollaborationRoom,
+  getCollaborationRoomStorage, getCollaborationRoomTree, listCollaborationRoomMembers, removeCollaborationRoomMember,
+  listCollaborationAccountRooms, openCollaborationAccountRoom, openCollaborationChildRoom, resolveCollaborationRoom, rotateCollaborationRoomInvite,
+  type CollaborationAccountRoom, type CollaborationAccountRoomOpen, type CollaborationRoomCredentials, type CollaborationRoomMember,
+} from './collaboration-rooms';
+import { CollaborationAssetClient } from './collaboration-assets';
+import { CollaborationAuthClient, type CollaborationAuthStatus } from './collaboration-auth';
+import {
+  collaborationSecretStore, decodePrivateNetworkInvite, encodePrivateNetworkInvite, generatePrivateNetworkServerToken,
+  isPrivateNetworkCollaborationUrl, PRIVATE_NETWORK_SECRET_ID, type CollaborationSecretStore,
+} from './collaboration-private-network';
+import collaborationServerSource from 'visual-notes-collaboration-server-source';
+import {
+  CollaborationHostManager, discoverCollaborationHostAddresses,
+  type CollaborationHostAddress, type CollaborationHostStatus,
+} from './collaboration-host';
+import { createDesktopCollaborationHostRuntime, desktopNetworkInterfaces } from './collaboration-host-runtime';
 
 export default class VisualNotesPlugin extends Plugin {
   override settings: VisualNotesSettings;
+  readonly collaborationTransport = new LoopbackCollaborationTransport();
+  private collaborationAuth?: CollaborationAuthClient;
+  private collaborationHost?: CollaborationHostManager;
+
+  /**
+   * Collaboration needs somewhere safe to keep the server secret, and
+   * SecretStorage is the only such place. Where Obsidian is too old to
+   * provide it the feature stays switched off rather than falling back to a
+   * plaintext store -- see collaborationSecretStore().
+   */
+  supportsCollaboration(): boolean {
+    return !!collaborationSecretStore(this.app);
+  }
+
+  private requireSecretStore(): CollaborationSecretStore {
+    const store = collaborationSecretStore(this.app);
+    if (!store) throw new Error('Collaboration needs Obsidian 1.11.4 or newer, which stores the server secret securely.');
+    return store;
+  }
+
+  hasPrivateNetworkServerSecret(): boolean {
+    return !!collaborationSecretStore(this.app)?.getSecret(PRIVATE_NETWORK_SECRET_ID)?.trim();
+  }
+
+  generatePrivateNetworkServerSecret(): void {
+    this.requireSecretStore().setSecret(PRIVATE_NETWORK_SECRET_ID, generatePrivateNetworkServerToken());
+  }
+
+  privateNetworkHostStatus(): CollaborationHostStatus {
+    return this.collaborationHost?.status() ?? { state: 'stopped' };
+  }
+
+  privateNetworkHostAddresses(): Promise<CollaborationHostAddress[]> {
+    if (!Platform.isDesktopApp) return Promise.resolve([]);
+    return Promise.resolve(discoverCollaborationHostAddresses(desktopNetworkInterfaces()));
+  }
+
+  async startPrivateNetworkHost(address: CollaborationHostAddress): Promise<CollaborationHostStatus> {
+    if (!Platform.isDesktopApp) throw new Error('Hosting is available on desktop. Mobile devices can join private rooms.');
+    const adapter = this.app.vault.adapter;
+    if (!(adapter instanceof FileSystemAdapter)) throw new Error('Automatic hosting requires a local desktop vault.');
+    const secrets = this.requireSecretStore();
+    let token = secrets.getSecret(PRIVATE_NETWORK_SECRET_ID)?.trim();
+    if (!token) {
+      token = generatePrivateNetworkServerToken();
+      secrets.setSecret(PRIVATE_NETWORK_SECRET_ID, token);
+    }
+    const port = this.settings.collaborationPrivateNetworkPort ?? 8787;
+    this.settings.collaborationPrivateNetworkHostAddress = address.address;
+    this.settings.collaborationPrivateNetworkUrl = `ws://${address.address.includes(':') ? `[${address.address}]` : address.address}:${port}`;
+    this.settings.collaborationTransport = 'private-network';
+    await this.saveSettings();
+    const pluginDirectory = adapter.getFullPath(`${this.app.vault.configDir}/plugins/${this.manifest.id}`);
+    const dataDirectory = adapter.getFullPath(`${this.app.vault.configDir}/visual-notes-collaboration`);
+    this.collaborationHost ??= new CollaborationHostManager(
+      collaborationServerSource, createDesktopCollaborationHostRuntime(),
+    );
+    return this.collaborationHost.start({
+      address, port, token,
+      runtimeDirectory: `${pluginDirectory}/.collaboration-runtime`,
+      dataDirectory,
+    });
+  }
+
+  async stopPrivateNetworkHost(): Promise<void> { await this.collaborationHost?.stop(); }
+
+  usesWebSocketCollaboration(): boolean {
+    // The single runtime choke point. A vault synced from a newer Obsidian
+    // arrives with collaboration already enabled in data.json; returning
+    // false here degrades the board to a local-only session instead of
+    // letting every room call reach requireSecretStore() and throw.
+    if (!this.supportsCollaboration()) return false;
+    if (this.settings.collaborationTransport === 'private-network') {
+      return isPrivateNetworkCollaborationUrl(this.collaborationServerUrl());
+    }
+    if (this.settings.collaborationTransport !== 'websocket') return false;
+    return isSafeCollaborationServerUrl(this.collaborationServerUrl());
+  }
+
+  getCollaborationTransport(room?: CollaborationRoomCredentials): CollaborationTransport {
+    if (!this.usesWebSocketCollaboration()) return this.collaborationTransport;
+    const url = this.collaborationServerUrl();
+    return new WebSocketCollaborationTransport({
+      url,
+      token: this.collaborationServiceToken(),
+      inviteCode: room?.inviteCode,
+      accessToken: room?.accessToken,
+      compatibility: {
+        pluginVersion: this.manifest.version,
+        obsidianVersion: apiVersion,
+        supportedBoardVersions: [2, 3],
+      },
+    });
+  }
+
+  createCollaborationRoom(board: VisualNotesFile): Promise<CollaborationRoomCredentials> {
+    const url = this.collaborationServerUrl();
+    const identity = ensureCollaborationIdentity(
+      this.settings, undefined, window.localStorage, this.app.vault.getName()
+    ).identity;
+    return createCollaborationRoom(
+      url, this.collaborationServiceToken(), board, identity
+    );
+  }
+
+  async resolveCollaborationRoom(inviteCode: string): Promise<CollaborationRoomCredentials> {
+    const privateInvite = decodePrivateNetworkInvite(inviteCode);
+    if (privateInvite) {
+      if (this.settings.collaborationTransport !== 'private-network') {
+        throw new Error('This is a private-network invitation. Select Private network as the collaboration transport first.');
+      }
+      this.settings.collaborationPrivateNetworkUrl = privateInvite.serverUrl;
+      this.requireSecretStore().setSecret(PRIVATE_NETWORK_SECRET_ID, privateInvite.serverToken);
+      await this.saveSettings();
+      inviteCode = privateInvite.inviteCode;
+    }
+    const url = this.collaborationServerUrl();
+    const identity = ensureCollaborationIdentity(
+      this.settings, undefined, window.localStorage, this.app.vault.getName()
+    ).identity;
+    return resolveCollaborationRoom(
+      url, this.collaborationServiceToken(), inviteCode, identity
+    );
+  }
+
+  formatCollaborationInvite(inviteCode: string): string {
+    if (this.settings.collaborationTransport !== 'private-network') return inviteCode;
+    return encodePrivateNetworkInvite(
+      this.collaborationServerUrl(), this.privateNetworkServerToken(), inviteCode,
+    );
+  }
+
+  listCollaborationAccountRooms(): Promise<CollaborationAccountRoom[]> {
+    return listCollaborationAccountRooms(this.collaborationServerUrl(), this.collaborationServiceToken());
+  }
+
+  openCollaborationAccountRoom(roomId: string): Promise<CollaborationAccountRoomOpen> {
+    return openCollaborationAccountRoom(
+      this.collaborationServerUrl(), this.collaborationServiceToken(), roomId, this.currentCollaborationIdentity(),
+    );
+  }
+
+  createCollaborationChildRoom(parent: CollaborationRoomCredentials, childKey: string, board: VisualNotesFile) {
+    return createCollaborationChildRoom(
+      this.collaborationServerUrl(), this.collaborationServiceToken(), parent, childKey, board,
+      this.currentCollaborationIdentity(),
+    );
+  }
+
+  openCollaborationChildRoom(parent: CollaborationRoomCredentials, childRoomId: string) {
+    return openCollaborationChildRoom(
+      this.collaborationServerUrl(), this.collaborationServiceToken(), parent, childRoomId,
+      this.currentCollaborationIdentity(),
+    );
+  }
+
+  listCollaborationRoomMembers(room: CollaborationRoomCredentials): Promise<CollaborationRoomMember[]> {
+    return listCollaborationRoomMembers(
+      this.collaborationServerUrl(), this.collaborationServiceToken(), room,
+      this.currentCollaborationIdentity().clientId,
+    );
+  }
+
+  rotateCollaborationRoomInvite(room: CollaborationRoomCredentials, role: 'editor' | 'viewer'): Promise<string> {
+    return rotateCollaborationRoomInvite(
+      this.collaborationServerUrl(), this.collaborationServiceToken(), room,
+      this.currentCollaborationIdentity().clientId, role,
+    );
+  }
+
+  removeCollaborationRoomMember(room: CollaborationRoomCredentials, memberClientId: string): Promise<void> {
+    return removeCollaborationRoomMember(
+      this.collaborationServerUrl(), this.collaborationServiceToken(), room,
+      this.currentCollaborationIdentity().clientId, memberClientId,
+    );
+  }
+
+  getCollaborationRoomStorage(room: CollaborationRoomCredentials) {
+    return getCollaborationRoomStorage(
+      this.collaborationServerUrl(), this.collaborationServiceToken(), room,
+      this.currentCollaborationIdentity().clientId,
+    );
+  }
+
+  getCollaborationRoomTree(room: CollaborationRoomCredentials) {
+    return getCollaborationRoomTree(
+      this.collaborationServerUrl(), this.collaborationServiceToken(), room,
+      this.currentCollaborationIdentity().clientId,
+    );
+  }
+
+  cleanupCollaborationRoomAssets(room: CollaborationRoomCredentials) {
+    return cleanupCollaborationRoomAssets(
+      this.collaborationServerUrl(), this.collaborationServiceToken(), room,
+      this.currentCollaborationIdentity().clientId,
+    );
+  }
+
+  exportCollaborationRoom(room: CollaborationRoomCredentials) {
+    return exportCollaborationRoom(
+      this.collaborationServerUrl(), this.collaborationServiceToken(), room,
+      this.currentCollaborationIdentity().clientId,
+    );
+  }
+
+  deleteCollaborationRoom(room: CollaborationRoomCredentials) {
+    return deleteCollaborationRoom(
+      this.collaborationServerUrl(), this.collaborationServiceToken(), room,
+      this.currentCollaborationIdentity().clientId,
+    );
+  }
+
+  createCollaborationAssetClient() {
+    return new CollaborationAssetClient(
+      this.app, this.collaborationServerUrl(), this.collaborationServiceToken(), this.currentCollaborationIdentity(),
+    );
+  }
+
+  private collaborationServerUrl(): string {
+    if (this.settings.collaborationTransport === 'private-network') {
+      return this.settings.collaborationPrivateNetworkUrl?.trim() || 'ws://127.0.0.1:8787';
+    }
+    return this.settings.collaborationServerUrl?.trim() || 'ws://127.0.0.1:8787';
+  }
+
+  private collaborationServiceToken(): string | (() => Promise<string>) {
+    if (this.settings.collaborationTransport === 'private-network') return this.privateNetworkServerToken();
+    if (this.settings.collaborationAuthentication === 'oidc') return () => this.collaborationAuthClient().accessToken();
+    return this.settings.collaborationDevelopmentToken || 'visual-notes-local-dev';
+  }
+
+  private privateNetworkServerToken(): string {
+    const token = this.requireSecretStore().getSecret(PRIVATE_NETWORK_SECRET_ID)?.trim();
+    if (!token || token.length < 24) throw new Error('Configure a private-network server secret of at least 24 characters.');
+    return token;
+  }
+
+  collaborationAuthStatus(): CollaborationAuthStatus {
+    return this.collaborationAuthClient().status();
+  }
+
+  async beginCollaborationSignIn(): Promise<void> {
+    const url = await this.collaborationAuthClient().begin({
+      issuer: this.settings.collaborationOidcIssuer ?? '',
+      clientId: this.settings.collaborationOidcClientId ?? '',
+      scope: this.settings.collaborationOidcScope,
+      audience: this.settings.collaborationOidcAudience,
+    });
+    const opened = window.open(url, '_blank');
+    if (!opened) throw new Error('Could not open your browser. Allow pop-ups for Obsidian and try again.');
+  }
+
+  signOutCollaboration(): void {
+    this.collaborationAuthClient().signOut();
+  }
+
+  private async completeCollaborationSignIn(params: Record<string, string>): Promise<void> {
+    try {
+      await this.collaborationAuthClient().complete(params);
+      new Notice('Signed in for experimental collaboration.');
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : 'Collaboration sign-in failed.');
+    }
+  }
+
+  private collaborationAuthClient(): CollaborationAuthClient {
+    return this.collaborationAuth ??= new CollaborationAuthClient({
+      storage: window.localStorage,
+      namespace: this.app.vault.getName(),
+    });
+  }
+
+  private currentCollaborationIdentity() {
+    return ensureCollaborationIdentity(
+      this.settings, undefined, window.localStorage, this.app.vault.getName()
+    ).identity;
+  }
 
   // Files the user has explicitly chosen to view with Obsidian's native
   // Canvas instead of Visual Notes' own UI for this session — e.g. so a
@@ -33,6 +332,16 @@ export default class VisualNotesPlugin extends Plugin {
   override async onload(): Promise<void> {
     await this.loadSettings();
     this.applyCanvasAppearanceSettings();
+    // Hosted account sign-in is a dormant foundation, not a shipped feature,
+    // so this callback has no reachable caller. Registering it anyway would
+    // leave any web page able to drive obsidian://visual-notes-auth into the
+    // plugin; the guard keeps the handler unregistered until the hosted path
+    // is actually switched on.
+    if (hostedCollaborationSignInEnabled(this.settings)) {
+      this.registerObsidianProtocolHandler('visual-notes-auth', params => {
+        void this.completeCollaborationSignIn(params);
+      });
+    }
 
     // Register the view
     this.registerView(
@@ -242,6 +551,7 @@ export default class VisualNotesPlugin extends Plugin {
   }
 
   override onunload(): void {
+    void this.stopPrivateNetworkHost();
     // Removes the class from every row it added it to, so disabling the
     // plugin leaves the explorer exactly as Obsidian drew it.
     this.explorerDecorator?.stop();
@@ -361,7 +671,20 @@ export default class VisualNotesPlugin extends Plugin {
     // Normalised because data.json is just a file on disk: hand-edited,
     // synced across devices, or written by an older version. A bad value used
     // to survive load and fail much later at a render site instead.
-    this.settings = normalizeSettings(Object.assign({}, DEFAULT_SETTINGS, await this.loadData()));
+    const loaded: unknown = await this.loadData();
+    const hadDormantHostedCredentials = hasDormantHostedCollaborationSettings(loaded);
+    const legacyPrivateNetworkToken = legacyPrivateNetworkSecret(loaded);
+    const secrets = collaborationSecretStore(this.app);
+    if (legacyPrivateNetworkToken && secrets && !secrets.getSecret(PRIVATE_NETWORK_SECRET_ID)) {
+      secrets.setSecret(PRIVATE_NETWORK_SECRET_ID, legacyPrivateNetworkToken);
+    }
+    this.settings = normalizeSettings(Object.assign({}, DEFAULT_SETTINGS, loaded));
+    // OAuth access/refresh tokens live in localStorage rather than data.json.
+    // Hosted sign-in is dormant, so clear both completed and pending sessions
+    // on every load to leave no hidden account credential behind.
+    purgeDormantCollaborationAuthStorage(window.localStorage);
+    const identity = ensureCollaborationIdentity(this.settings, undefined, window.localStorage, this.app.vault.getName());
+    if (identity.changed || hadDormantHostedCredentials) await this.saveData(this.settings);
   }
 
   async saveSettings(): Promise<void> {
@@ -554,4 +877,42 @@ export default class VisualNotesPlugin extends Plugin {
       new Notice('Visual Notes: Migration failed — your v1 tiles are still in plugin settings. Please report this issue.', 10000);
     }
   }
+}
+
+const DORMANT_HOSTED_COLLABORATION_KEYS = [
+  'collaborationServerUrl', 'collaborationDevelopmentToken', 'collaborationAuthentication',
+  'collaborationOidcIssuer', 'collaborationOidcClientId', 'collaborationOidcScope', 'collaborationOidcAudience',
+  'collaborationPrivateNetworkToken',
+] as const;
+
+/**
+ * True only while the dormant hosted/OIDC path is switched on, which
+ * normalizeSettings() currently makes impossible -- it forces every
+ * collaborating install onto 'private-network'. Reading the setting rather
+ * than hard-coding false means re-enabling the hosted path is one honest
+ * change in settings-validate.ts, not a hunt for scattered `false`s.
+ */
+function hostedCollaborationSignInEnabled(settings: VisualNotesSettings): boolean {
+  return settings.collaborationTransport === 'websocket'
+    && settings.collaborationAuthentication === 'oidc';
+}
+
+function hasDormantHostedCollaborationSettings(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return DORMANT_HOSTED_COLLABORATION_KEYS.some(key => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function purgeDormantCollaborationAuthStorage(storage: Storage): void {
+  const keys: string[] = [];
+  for (let index = 0; index < storage.length; index++) {
+    const key = storage.key(index);
+    if (key?.startsWith('visual-notes:collaboration-auth:')) keys.push(key);
+  }
+  for (const key of keys) storage.removeItem(key);
+}
+
+function legacyPrivateNetworkSecret(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const token: unknown = (value as Record<string, unknown>).collaborationPrivateNetworkToken;
+  return typeof token === 'string' && token.trim().length >= 24 ? token.trim() : undefined;
 }

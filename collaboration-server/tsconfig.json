@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "types": ["node", "ws"],
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "../src/collaboration-protocol.ts", "../src/collaboration-operations.ts", "../src/collaboration-identity.ts", "../src/collaboration-transport.ts", "../src/file-types.ts", "../src/canvas-format.ts"]
+}

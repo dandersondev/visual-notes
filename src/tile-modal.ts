@@ -564,9 +564,17 @@ export class TileModal extends Modal {
       return false;
     }
 
+    const previousTarget = this.tile.target;
+    const roomId = previousTarget?.kind === 'board'
+      && this.targetKind === 'board'
+      && previousTarget.path === this.targetPath
+      ? previousTarget.roomId : undefined;
+    const target: TileTarget = this.targetKind === 'board'
+      ? { kind: 'board', path: this.targetPath, ...(roomId ? { roomId } : {}) }
+      : { kind: this.targetKind, path: this.targetPath };
     const saved: TileCard = {
       ...(this.tile as TileCard),
-      target: { kind: this.targetKind, path: this.targetPath },
+      target,
     };
     this.onSave(saved);
     this.close();

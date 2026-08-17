@@ -157,6 +157,9 @@ export interface BaseCard {
   // link visually match. Unlinking clears these but never deletes the file.
   nestedBoardPath?: string;
   nestedBoardIcon?: string;
+  // Hosted child document paired with nestedBoardPath. It is an identifier,
+  // never a credential; local-only boards simply leave it unset.
+  nestedBoardRoomId?: string;
 }
 
 // ── Tile card (the v1-style icon tile) ───────────────────────
@@ -178,7 +181,7 @@ export type TileTarget =
   | { kind: 'canvas';  path: string }
   | { kind: 'note';    path: string }
   | { kind: 'kanban';  path: string }
-  | { kind: 'board';   path: string }; // nested Visual Notes file (.canvas)
+  | { kind: 'board';   path: string; roomId?: string }; // nested Visual Notes file (.canvas)
 
 // Custom drag MIME type carrying a grid tile's full styling (icon/color/
 // label/subtitle/thumbnail/target) — set by GridRenderer on dragstart so
@@ -376,7 +379,7 @@ export interface ChecklistCard extends BaseCard {
 export interface ImageCard extends BaseCard {
   kind: 'image';
   source:
-    | { type: 'vault'; path: string }
+    | { type: 'vault'; path: string; sharedAsset?: SharedAssetRef }
     | { type: 'external'; url: string };
   // The pre-crop source, set the first time this card is cropped and never
   // touched again by later re-crops — so "Crop image…" always opens on the
@@ -385,12 +388,20 @@ export interface ImageCard extends BaseCard {
   // image (e.g. "Choose from vault…"), since the old original no longer
   // applies to it.
   originalSource?:
-    | { type: 'vault'; path: string }
+    | { type: 'vault'; path: string; sharedAsset?: SharedAssetRef }
     | { type: 'external'; url: string };
   caption?: string;
   captionHidden?: boolean;
   captionColor?: string;
   captionScale?: 'sm' | 'md' | 'lg';
+}
+
+/** Content-addressed room fallback for vault-local shared media. */
+export interface SharedAssetRef {
+  hash: string;
+  mimeType: string;
+  size: number;
+  name?: string;
 }
 
 export interface AudioCard extends BaseCard {
@@ -407,7 +418,7 @@ export interface AudioCard extends BaseCard {
 // does.
 export interface VideoCard extends BaseCard {
   kind: 'video';
-  source: { type: 'vault'; path: string };
+  source: { type: 'vault'; path: string; sharedAsset?: SharedAssetRef };
 }
 
 export interface NoteLinkCard extends BaseCard {
@@ -481,6 +492,7 @@ export interface KanbanItem {
   // chip renders in the item's meta row alongside note/link pills.
   nestedBoardPath?: string;
   nestedBoardIcon?: string;
+  nestedBoardRoomId?: string;
 }
 
 // A single lane inside a multi-column kanban board. Everything that used to
@@ -550,6 +562,7 @@ export interface CalendarNote {
   importance?: CalendarNoteImportance;
   nestedBoardPath?: string;
   nestedBoardIcon?: string;
+  nestedBoardRoomId?: string;
 }
 
 // Decoration on the day cell itself — independent of any note. Lets a date
@@ -566,6 +579,7 @@ export interface CalendarDayStyle {
   importance?: CalendarNoteImportance;
   nestedBoardPath?: string;
   nestedBoardIcon?: string;
+  nestedBoardRoomId?: string;
 }
 
 // Month/week agenda over the board-wide dated items (kanban due dates,
@@ -725,7 +739,7 @@ export interface StoryboardShot {
   duration?: number;
   notes?: string;
   aspectRatio: StoryboardAspectRatio;
-  background?: { type: 'vault'; path: string } | { type: 'external'; url: string };
+  background?: { type: 'vault'; path: string; sharedAsset?: SharedAssetRef } | { type: 'external'; url: string };
   objects: StoryboardObject[];
   drawings: StoryboardStroke[];
   status?: 'idea' | 'draft' | 'approved' | 'shot';

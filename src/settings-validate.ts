@@ -43,10 +43,12 @@ export function validateTileImport(value: unknown): { tiles: Tile[] } | { error:
   return { tiles: value as Tile[] };
 }
 
-const ENUMS: { [K in 'toolbarPosition' | 'mobileFabPosition' | 'panButton']: string[] } = {
+const ENUMS: { [K in 'toolbarPosition' | 'mobileFabPosition' | 'panButton' | 'collaborationTransport' | 'collaborationAuthentication']: string[] } = {
   toolbarPosition: ['left', 'right', 'top', 'bottom'],
   mobileFabPosition: ['bottom-right', 'bottom-left', 'top-right', 'top-left'],
   panButton: ['middle', 'right', 'either'],
+  collaborationTransport: ['loopback', 'private-network', 'websocket'],
+  collaborationAuthentication: ['development', 'oidc'],
 };
 
 /**
@@ -59,6 +61,21 @@ const ENUMS: { [K in 'toolbarPosition' | 'mobileFabPosition' | 'panButton']: str
 export function normalizeSettings(s: VisualNotesSettings): VisualNotesSettings {
   const out = { ...s };
 
+  // The initial release is deliberately private-network only. Remove dormant
+  // hosted-development/OIDC configuration rather than merely hiding it: old
+  // test issuer details and tokens must not remain discoverable in data.json.
+  delete out.collaborationServerUrl;
+  delete out.collaborationDevelopmentToken;
+  delete out.collaborationAuthentication;
+  delete out.collaborationOidcIssuer;
+  delete out.collaborationOidcClientId;
+  delete out.collaborationOidcScope;
+  delete out.collaborationOidcAudience;
+  delete out.collaborationPrivateNetworkToken;
+  if (out.collaborationTransport !== undefined || out.experimentalCollaboration === true) {
+    out.collaborationTransport = 'private-network';
+  }
+
   for (const key of ['rootTiles', 'legacyBackup', 'preImportBackup'] as const) {
     const v: unknown = out[key];
     if (v === undefined && key !== 'rootTiles') continue;
@@ -69,18 +86,23 @@ export function normalizeSettings(s: VisualNotesSettings): VisualNotesSettings {
   for (const key of Object.keys(ENUMS) as (keyof typeof ENUMS)[]) {
     if (out[key] !== undefined && !ENUMS[key].includes(out[key])) delete out[key];
   }
-  for (const key of ['defaultBoardPath', 'defaultNewBoardFolder', 'defaultStickyColor', 'commentAuthorName', 'dotColor', 'canvasBgColor', 'clipFolder', 'clipBoardPath'] as const) {
+  for (const key of ['defaultBoardPath', 'defaultNewBoardFolder', 'defaultStickyColor', 'commentAuthorName', 'dotColor', 'canvasBgColor', 'clipFolder', 'clipBoardPath', 'collaborationClientId', 'collaborationDisplayName', 'collaborationColor', 'collaborationServerUrl', 'collaborationDevelopmentToken', 'collaborationPrivateNetworkUrl', 'collaborationPrivateNetworkHostAddress', 'collaborationOidcIssuer', 'collaborationOidcClientId', 'collaborationOidcScope', 'collaborationOidcAudience'] as const) {
     if (out[key] !== undefined && typeof out[key] !== 'string') delete out[key];
   }
-  for (const key of ['v2migrationDone', 'autoRelinkOnOpen', 'cardDragAnimation', 'largeKanbanItems', 'snapToGrid', 'clipAutoImport', 'explorerBoardTint', 'appearanceButton'] as const) {
+  for (const key of ['v2migrationDone', 'autoRelinkOnOpen', 'cardDragAnimation', 'largeKanbanItems', 'snapToGrid', 'clipAutoImport', 'explorerBoardTint', 'appearanceButton', 'experimentalCollaboration'] as const) {
     if (out[key] !== undefined && typeof out[key] !== 'boolean') delete out[key];
   }
-  for (const key of ['bookmarkCacheDays', 'dotSize', 'snapGridSize', 'trashZoneSize', 'cardDragAnimationIntensity'] as const) {
+  for (const key of ['bookmarkCacheDays', 'dotSize', 'snapGridSize', 'trashZoneSize', 'cardDragAnimationIntensity', 'collaborationPrivateNetworkPort'] as const) {
     const v = out[key];
     if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v <= 0)) delete out[key];
   }
   if (out.cardDragAnimationIntensity !== undefined) {
     out.cardDragAnimationIntensity = Math.min(2, Math.max(0.5, out.cardDragAnimationIntensity));
+  }
+  if (out.collaborationPrivateNetworkPort !== undefined
+    && (!Number.isInteger(out.collaborationPrivateNetworkPort)
+      || out.collaborationPrivateNetworkPort < 1024 || out.collaborationPrivateNetworkPort > 65535)) {
+    delete out.collaborationPrivateNetworkPort;
   }
   if (out.penDrawOptions !== undefined && (typeof out.penDrawOptions !== 'object' || out.penDrawOptions === null)) {
     delete out.penDrawOptions;

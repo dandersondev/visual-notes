@@ -1,10 +1,15 @@
-import { App, PluginSettingTab, Setting, Notice, FuzzySuggestModal, TFile, type SettingDefinitionItem } from 'obsidian';
+import { App, PluginSettingTab, Setting, Notice, FuzzySuggestModal, Platform, TFile, type SettingDefinitionItem } from 'obsidian';
 import type VisualNotesPlugin from './main';
 import { ConfirmModal } from './tile-modal';
 import { FolderSuggestModal } from './create-board-modal';
 import { validateTileImport } from './settings-validate';
 import { relinkAllBoards } from './asset-manager';
 import { STICKY_COLORS, resolveDefaultStickyColor } from './freeform-view-shared';
+import {
+  COLLABORATOR_COLORS, ensureCollaborationIdentity, regenerateCollaborationClientId,
+} from './collaboration-identity';
+import { isSafeCollaborationServerUrl } from './collaboration-websocket-transport';
+import { isPrivateNetworkCollaborationUrl } from './collaboration-private-network';
 
 // Replaced with a string literal by esbuild at build time (see the `define`
 // in esbuild.config.mjs). The `typeof` guard keeps this working under
@@ -115,6 +120,22 @@ export class VisualNotesSettingsTab extends PluginSettingTab {
         { name: 'Comment author name', desc: 'Shown on new comments and replies you add to a board. Defaults to "Anonymous" when left blank.',
           render: (s) => this.buildCommentAuthorName(s) },
       ] },
+      { type: 'group', heading: 'Experimental collaboration', items: [
+        { name: 'Enable collaboration experiments', desc: 'Enables opt-in private-network collaboration. A participant hosts room updates and shared media; Visual Notes operates no cloud service.',
+          render: (s) => this.buildExperimentalCollaboration(s) },
+        { name: 'Private-network server address', desc: 'Address supplied by your LAN, VPN, or virtual-network provider.',
+          render: (s) => this.buildCollaborationPrivateNetworkUrl(s) },
+        { name: 'Private-network server secret', desc: 'A high-entropy secret shared inside private-network invitations.',
+          render: (s) => this.buildCollaborationPrivateNetworkToken(s) },
+        { name: 'Host from this device', desc: 'Start and stop the bundled private-room server on desktop.',
+          render: (s) => this.buildCollaborationPrivateNetworkHost(s) },
+        { name: 'Your collaborator name', desc: 'The name experimental shared sessions show to other collaborators.',
+          render: (s) => this.buildCollaborationDisplayName(s) },
+        { name: 'Your collaborator colour', desc: 'The colour experimental cursors, selections, and presence indicators use.',
+          render: (s) => this.buildCollaborationColor(s) },
+        { name: 'This device ID', desc: 'A random identifier for this installation, used to distinguish edits from different devices. It is not an account or a tracking identifier.',
+          render: (s) => this.buildCollaborationClientId(s) },
+      ] },
       { type: 'group', heading: 'Web clips', items: [
         { name: 'Clippings folder', desc: 'Notes saved into this folder are added to the board below. Point Obsidian Web Clipper’s note location here to send clips straight to a board.',
           render: (s) => this.buildClipFolder(s) },
@@ -159,7 +180,9 @@ export class VisualNotesSettingsTab extends PluginSettingTab {
   // review's no-unsupported-api check — and an imperative rebuild renders
   // identically since both paths share the same buildX bodies.
   private refresh(): void {
+    const scrollTop = this.containerEl.scrollTop;
     this.renderImperative();
+    this.containerEl.scrollTop = scrollTop;
   }
 
   private renderImperative(): void {
@@ -190,6 +213,15 @@ export class VisualNotesSettingsTab extends PluginSettingTab {
     this.buildBookmarkCacheDuration(new Setting(containerEl));
     this.buildDefaultStickyColor(new Setting(containerEl));
     this.buildCommentAuthorName(new Setting(containerEl));
+
+    new Setting(containerEl).setName('Experimental collaboration').setHeading();
+    this.buildExperimentalCollaboration(new Setting(containerEl));
+    this.buildCollaborationPrivateNetworkUrl(new Setting(containerEl));
+    this.buildCollaborationPrivateNetworkToken(new Setting(containerEl));
+    this.buildCollaborationPrivateNetworkHost(new Setting(containerEl));
+    this.buildCollaborationDisplayName(new Setting(containerEl));
+    this.buildCollaborationColor(new Setting(containerEl));
+    this.buildCollaborationClientId(new Setting(containerEl));
 
     new Setting(containerEl).setName('Web clips').setHeading();
     this.buildClipFolder(new Setting(containerEl));
@@ -747,6 +779,368 @@ export class VisualNotesSettingsTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+  }
+
+  private buildExperimentalCollaboration(setting: Setting): void {
+    setting
+      .setName('Enable collaboration experiments')
+      .setDesc('Enables opt-in private-network collaboration. A participant hosts room updates and shared media; Visual Notes operates no cloud service.');
+    // Rendered either way so the row never silently disappears: a reader who
+    // has heard of the feature gets told why it is unavailable and what to do.
+    if (!this.plugin.supportsCollaboration()) {
+      setting.descEl.createDiv('visual-notes-setting-warning').setText(
+        'Unavailable on this Obsidian version. Collaboration keeps its server secret in Obsidian’s secure storage, added in Obsidian 1.11.4. Update Obsidian to use it; every other Visual Notes feature works as normal.'
+      );
+      setting.addToggle(toggle => toggle.setValue(false).setDisabled(true));
+      return;
+    }
+    setting.addToggle(toggle => toggle
+      .setValue(this.plugin.settings.experimentalCollaboration ?? false)
+      .onChange(async (value) => {
+        this.plugin.settings.experimentalCollaboration = value;
+        if (value) this.plugin.settings.collaborationTransport = 'private-network';
+        await this.plugin.saveSettings();
+      }));
+  }
+
+  private buildCollaborationPrivateNetworkUrl(setting: Setting): void {
+    setting.settingEl.toggle(this.plugin.supportsCollaboration()
+      && this.plugin.settings.collaborationTransport === 'private-network');
+    setting
+      .setName('Private-network server address')
+      .setDesc('Use the host address supplied by your physical LAN, VPN, or virtual-network provider. Private IPs and encrypted wss:// addresses are accepted.')
+      .addText(text => text
+        .setPlaceholder('ws://100.64.0.10:8787')
+        .setValue(this.plugin.settings.collaborationPrivateNetworkUrl ?? '')
+        .onChange(async value => {
+          this.plugin.settings.collaborationPrivateNetworkUrl = value.trim() || undefined;
+          await this.plugin.saveSettings();
+        }));
+    const configured = this.plugin.settings.collaborationPrivateNetworkUrl?.trim();
+    if (configured && !isPrivateNetworkCollaborationUrl(configured)) {
+      setting.descEl.createDiv('visual-notes-setting-warning').setText(
+        'Unsafe address: use wss:// or a loopback, private LAN, Tailscale, .local, or private IPv6 address.'
+      );
+    }
+  }
+
+  private buildCollaborationPrivateNetworkToken(setting: Setting): void {
+    setting.settingEl.toggle(this.plugin.supportsCollaboration()
+      && this.plugin.settings.collaborationTransport === 'private-network');
+    setting
+      .setName('Private-network server secret')
+      .setDesc(this.plugin.hasPrivateNetworkServerSecret()
+        ? 'Stored in Obsidian SecretStorage. It is included in room invitations, so treat invitations like passwords.'
+        : 'No server secret is stored yet. One is generated automatically when hosting starts.')
+      .addButton(button => button
+        .setButtonText(this.plugin.hasPrivateNetworkServerSecret() ? 'Rotate secret' : 'Generate secret')
+        .setDisabled(this.plugin.privateNetworkHostStatus().state !== 'stopped')
+        .onClick(() => {
+        this.plugin.generatePrivateNetworkServerSecret();
+        this.refresh();
+      }));
+  }
+
+  private buildCollaborationPrivateNetworkHost(setting: Setting): void {
+    setting.settingEl.toggle(this.plugin.supportsCollaboration()
+      && this.plugin.settings.collaborationTransport === 'private-network');
+    setting.setName('Host from this device');
+    if (!Platform.isDesktopApp) {
+      setting.setDesc('This device can join private rooms. Hosting is currently available on desktop only.');
+      return;
+    }
+    const status = this.plugin.privateNetworkHostStatus();
+    setting.setDesc(status.state === 'running' && status.address
+      ? `Running on ${status.address.address}:${status.port}. Keep Obsidian open while others collaborate.`
+      : status.state === 'error' ? `Host stopped: ${status.error ?? 'Unknown error'}`
+      : status.state === 'starting' ? 'Starting private collaboration host…'
+      : 'Runs the room server on this computer. Board data and shared media stay with the host.');
+
+    let selectedAddress = this.plugin.settings.collaborationPrivateNetworkHostAddress ?? '';
+    setting.addDropdown(dropdown => {
+      dropdown.addOption('', 'Detecting networks…').setValue('');
+      void this.plugin.privateNetworkHostAddresses().then(addresses => {
+        dropdown.selectEl.empty();
+        if (addresses.length === 0) {
+          dropdown.addOption('', 'No private network found').setDisabled(true);
+          return;
+        }
+        for (const address of addresses) {
+          const kind = address.kind === 'tailscale' ? 'Tailscale' : address.kind === 'private-lan' ? 'LAN/VPN' : 'Private IPv6';
+          dropdown.addOption(address.address, `${kind} · ${address.name} · ${address.address}`);
+        }
+        if (!addresses.some(address => address.address === selectedAddress)) selectedAddress = addresses[0].address;
+        dropdown.setValue(selectedAddress);
+      }).catch(error => {
+        dropdown.selectEl.empty();
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        dropdown.addOption('', `Network detection failed: ${message}`).setDisabled(true);
+        setting.setDesc(`Network detection failed: ${message}`);
+      });
+      dropdown.onChange(async value => {
+        selectedAddress = value;
+        this.plugin.settings.collaborationPrivateNetworkHostAddress = value || undefined;
+        await this.plugin.saveSettings();
+      });
+    });
+
+    setting.addText(text => {
+      text.setPlaceholder('8787').setValue(String(this.plugin.settings.collaborationPrivateNetworkPort ?? 8787));
+      text.inputEl.type = 'number';
+      text.inputEl.min = '1024';
+      text.inputEl.max = '65535';
+      text.onChange(async value => {
+        const port = Number(value);
+        this.plugin.settings.collaborationPrivateNetworkPort = Number.isInteger(port) && port >= 1024 && port <= 65535
+          ? port : undefined;
+        await this.plugin.saveSettings();
+      });
+    });
+
+    if (status.state === 'running' || status.state === 'starting') {
+      setting.addButton(button => button.setButtonText('Stop hosting').setWarning().onClick(async () => {
+        button.setDisabled(true);
+        await this.plugin.stopPrivateNetworkHost();
+        new Notice('Private collaboration host stopped.');
+        this.refresh();
+      }));
+    } else {
+      setting.addButton(button => button.setButtonText('Start hosting').setCta().onClick(async () => {
+        button.setDisabled(true).setButtonText('Starting…');
+        try {
+          const addresses = await this.plugin.privateNetworkHostAddresses();
+          const address = addresses.find(candidate => candidate.address === selectedAddress) ?? addresses[0];
+          if (!address) throw new Error('No private LAN or virtual-network address was detected.');
+          const result = await this.plugin.startPrivateNetworkHost(address);
+          if (result.state !== 'running') throw new Error(result.error ?? 'The host did not start.');
+          new Notice(`Private collaboration host is running on ${address.address}:${result.port}.`);
+          this.refresh();
+        } catch (error) {
+          new Notice(error instanceof Error ? error.message : 'Could not start private collaboration host.', 10000);
+          button.setDisabled(false).setButtonText('Start hosting');
+        }
+      }));
+    }
+  }
+
+  private buildCollaborationServerUrl(setting: Setting): void {
+    setting.settingEl.toggle(this.plugin.settings.collaborationTransport === 'websocket');
+    setting
+      .setName('Development server URL')
+      .setDesc('Accepts local unencrypted ws:// or encrypted wss://. Invalid or unsafe URLs fall back to loopback.')
+      .addText(text => text
+        .setPlaceholder('ws://127.0.0.1:8787')
+        .setValue(this.plugin.settings.collaborationServerUrl ?? '')
+        .onChange(async value => {
+          const trimmed = value.trim();
+          this.plugin.settings.collaborationServerUrl = trimmed || undefined;
+          await this.plugin.saveSettings();
+        }));
+    const configured = this.plugin.settings.collaborationServerUrl?.trim();
+    if (configured && !isSafeCollaborationServerUrl(configured)) {
+      setting.descEl.createDiv('visual-notes-setting-warning').setText('Unsafe URL: use wss://, ws://localhost, or ws://127.0.0.1. Loopback will be used instead.');
+    }
+  }
+
+  private buildCollaborationDevelopmentToken(setting: Setting): void {
+    setting.settingEl.toggle(this.plugin.settings.collaborationTransport === 'websocket'
+      && this.plugin.settings.collaborationAuthentication !== 'oidc');
+    setting
+      .setName('Development server token')
+      .setDesc('Shared local-development token only. Production authentication will replace this before release.')
+      .addText(text => {
+        text.setPlaceholder('visual-notes-local-dev')
+          .setValue(this.plugin.settings.collaborationDevelopmentToken ?? '')
+          .onChange(async value => {
+            this.plugin.settings.collaborationDevelopmentToken = value || undefined;
+            await this.plugin.saveSettings();
+          });
+        text.inputEl.type = 'password';
+        text.inputEl.autocomplete = 'off';
+      });
+  }
+
+  private buildCollaborationAuthentication(setting: Setting): void {
+    setting.settingEl.toggle(this.plugin.settings.collaborationTransport === 'websocket');
+    setting
+      .setName('Collaboration authentication')
+      .setDesc('Development token preserves the current local workflow. Browser sign-in uses OAuth Authorization Code + PKCE and is intended for the future hosted service.')
+      .addDropdown(dropdown => dropdown
+        .addOption('development', 'Development token')
+        .addOption('oidc', 'Browser account sign-in')
+        .setValue(this.plugin.settings.collaborationAuthentication ?? 'development')
+        .onChange(async value => {
+          this.plugin.settings.collaborationAuthentication = value as 'development' | 'oidc';
+          await this.plugin.saveSettings();
+          this.refresh();
+        }));
+  }
+
+  private buildCollaborationOidcIssuer(setting: Setting): void {
+    setting.settingEl.toggle(this.plugin.settings.collaborationTransport === 'websocket'
+      && this.plugin.settings.collaborationAuthentication === 'oidc');
+    setting
+      .setName('Identity provider issuer')
+      .setDesc('HTTPS issuer URL from the hosted identity provider, for example https://accounts.example.com. Discovery is automatic.')
+      .addText(text => text
+        .setPlaceholder('https://accounts.example.com')
+        .setValue(this.plugin.settings.collaborationOidcIssuer ?? '')
+        .onChange(async value => {
+          this.plugin.signOutCollaboration();
+          this.plugin.settings.collaborationOidcIssuer = value.trim() || undefined;
+          await this.plugin.saveSettings();
+        }));
+  }
+
+  private buildCollaborationOidcClientId(setting: Setting): void {
+    setting.settingEl.toggle(this.plugin.settings.collaborationTransport === 'websocket'
+      && this.plugin.settings.collaborationAuthentication === 'oidc');
+    setting
+      .setName('Identity provider client ID')
+      .setDesc('Public native-app client ID. Visual Notes never accepts or stores an OAuth client secret.')
+      .addText(text => text
+        .setPlaceholder('visual-notes-desktop')
+        .setValue(this.plugin.settings.collaborationOidcClientId ?? '')
+        .onChange(async value => {
+          this.plugin.signOutCollaboration();
+          this.plugin.settings.collaborationOidcClientId = value.trim() || undefined;
+          await this.plugin.saveSettings();
+        }));
+  }
+
+  private buildCollaborationOidcScope(setting: Setting): void {
+    setting.settingEl.toggle(this.plugin.settings.collaborationTransport === 'websocket'
+      && this.plugin.settings.collaborationAuthentication === 'oidc');
+    setting
+      .setName('Identity provider scopes')
+      .setDesc('Defaults to openid profile email offline_access. offline_access lets the installation renew an expired access token.')
+      .addText(text => text
+        .setPlaceholder('openid profile email offline_access')
+        .setValue(this.plugin.settings.collaborationOidcScope ?? '')
+        .onChange(async value => {
+          this.plugin.settings.collaborationOidcScope = value.trim() || undefined;
+          await this.plugin.saveSettings();
+        }));
+  }
+
+  private buildCollaborationOidcAudience(setting: Setting): void {
+    setting.settingEl.toggle(this.plugin.settings.collaborationTransport === 'websocket'
+      && this.plugin.settings.collaborationAuthentication === 'oidc');
+    setting
+      .setName('Collaboration API audience')
+      .setDesc('API identifier configured at the identity provider. Auth0 requires this to issue a token for the Visual Notes collaboration service.')
+      .addText(text => text
+        .setPlaceholder('https://collaboration.visualnotes.example')
+        .setValue(this.plugin.settings.collaborationOidcAudience ?? '')
+        .onChange(async value => {
+          this.plugin.signOutCollaboration();
+          this.plugin.settings.collaborationOidcAudience = value.trim() || undefined;
+          await this.plugin.saveSettings();
+        }));
+  }
+
+  private buildCollaborationAccount(setting: Setting): void {
+    setting.settingEl.toggle(this.plugin.settings.collaborationTransport === 'websocket'
+      && this.plugin.settings.collaborationAuthentication === 'oidc');
+    const status = this.plugin.collaborationAuthStatus();
+    const statusText = status.signedIn
+      ? `Signed in locally${status.expiresAt ? `; access token expires ${new Date(status.expiresAt).toLocaleString()}` : ''}.`
+      : 'Not signed in.';
+    setting.setName('Collaboration account').setDesc(statusText);
+    if (status.signedIn) {
+      setting.addButton(button => button.setButtonText('Find my rooms').onClick(() => { void (async () => {
+        button.setDisabled(true).setButtonText('Checking…');
+        try {
+          const rooms = await this.plugin.listCollaborationAccountRooms();
+          setting.setDesc(rooms.length === 0
+            ? 'Signed in. This account does not own or belong to any hosted rooms yet.'
+            : `Signed in. Found ${rooms.length} hosted root room${rooms.length === 1 ? '' : 's'} for this account.`);
+        } catch (error) {
+          new Notice(error instanceof Error ? error.message : 'Could not load account rooms.');
+        } finally {
+          button.setDisabled(false).setButtonText('Find my rooms');
+        }
+      })(); }));
+      setting.addButton(button => button.setButtonText('Sign out').onClick(() => {
+        this.plugin.signOutCollaboration();
+        setting.setDesc('Not signed in.');
+        button.setButtonText('Signed out').setDisabled(true);
+        new Notice('Signed out of experimental collaboration on this installation.');
+      }));
+    } else {
+      setting.addButton(button => button.setButtonText('Sign in with browser').setCta().onClick(() => { void (async () => {
+        button.setDisabled(true).setButtonText('Opening browser…');
+        try {
+          await this.plugin.beginCollaborationSignIn();
+          setting.setDesc('Finish signing in in your browser, then return to Obsidian.');
+        } catch (error) {
+          new Notice(error instanceof Error ? error.message : 'Could not begin collaboration sign-in.');
+          button.setDisabled(false).setButtonText('Sign in with browser');
+        }
+      })(); }));
+    }
+  }
+
+  private buildCollaborationDisplayName(setting: Setting): void {
+    setting
+      .setName('Your collaborator name')
+      .setDesc('The name experimental shared sessions show to other collaborators.')
+      .addText(text => text
+        .setPlaceholder('Anonymous')
+        .setValue(this.plugin.settings.collaborationDisplayName ?? '')
+        .onChange(async (value) => {
+          this.plugin.settings.collaborationDisplayName = value.trim() || undefined;
+          await this.plugin.saveSettings();
+        }));
+  }
+
+  private buildCollaborationColor(setting: Setting): void {
+    const identity = ensureCollaborationIdentity(
+      this.plugin.settings, undefined, window.localStorage, this.app.vault.getName()
+    ).identity;
+    setting
+      .setName('Your collaborator colour')
+      .setDesc('Choose the colour used for your cursor, selections, and presence indicator.');
+    const palette = setting.controlEl.createDiv('visual-notes-collaboration-colour-palette');
+    for (const colour of COLLABORATOR_COLORS) {
+      const swatch = palette.createEl('button', {
+        cls: `visual-notes-collaboration-colour-swatch${identity.color === colour ? ' is-selected' : ''}`,
+        attr: { 'aria-label': `Use collaborator colour ${colour}`, type: 'button' },
+      });
+      swatch.style.backgroundColor = colour;
+      swatch.addEventListener('click', () => { void (async () => {
+        this.plugin.settings.collaborationColor = colour;
+        await this.plugin.saveSettings();
+        for (const option of palette.querySelectorAll('.visual-notes-collaboration-colour-swatch')) {
+          option.toggleClass('is-selected', option === swatch);
+        }
+      })(); });
+    }
+  }
+
+  private buildCollaborationClientId(setting: Setting): void {
+    const identity = ensureCollaborationIdentity(
+      this.plugin.settings, undefined, window.localStorage, this.app.vault.getName()
+    ).identity;
+    setting
+      .setName('This device ID')
+      .setDesc('Random local installation ID. Regenerating it makes future sessions treat this device as a new collaborator.')
+      .addText(text => {
+        text.setValue(identity.clientId);
+        text.inputEl.disabled = true;
+      })
+      .addButton(button => button.setButtonText('Copy').onClick(() => { void (async () => {
+        await navigator.clipboard.writeText(identity.clientId);
+        new Notice('Visual Notes: Device ID copied.');
+      })(); }))
+      .addButton(button => button.setButtonText('Regenerate').onClick(() => { void (async () => {
+        regenerateCollaborationClientId(
+          this.plugin.settings, undefined, window.localStorage, this.app.vault.getName()
+        );
+        await this.plugin.saveSettings();
+        this.refresh();
+        new Notice('Visual Notes: This device now has a new collaboration ID.');
+      })(); }));
   }
 
   private buildAutoSortAssets(setting: Setting): void {

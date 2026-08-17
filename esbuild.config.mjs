@@ -41,6 +41,7 @@ const context = await esbuild.context({
     "@lezer/highlight",
     "@lezer/lr",
     ...builtinModules,
+    ...builtinModules.map(module => `node:${module}`),
   ],
   format: "cjs",
   target: "es2018",
@@ -61,6 +62,19 @@ const context = await esbuild.context({
     ".svg": "dataurl",
     ".webp": "dataurl",
   },
+  plugins: [{
+    name: "embedded-collaboration-server",
+    setup(build) {
+      build.onResolve({ filter: /^visual-notes-collaboration-server-source$/ }, () => ({
+        path: "collaboration-server/dist/server.cjs",
+        namespace: "collaboration-server-source",
+      }));
+      build.onLoad({ filter: /.*/, namespace: "collaboration-server-source" }, () => ({
+        contents: `export default ${JSON.stringify(readFileSync("collaboration-server/dist/server.cjs", "utf8"))};`,
+        loader: "js",
+      }));
+    },
+  }],
 });
 
 if (prod) {

@@ -1067,6 +1067,7 @@ export const canvasMethods = {
     this.zoomPill?.toggleClass('is-hidden-for-ctx-bar', ctxBarActive);
     this.snapToggleBtn?.toggleClass('is-hidden-for-ctx-bar', ctxBarActive);
     this.minimapEl?.toggleClass('is-hidden-for-ctx-bar', ctxBarActive);
+    this.publishCollaborationPresence();
   },
 
   // Single delegated listener set on the canvas content container instead
@@ -1238,10 +1239,6 @@ export const canvasMethods = {
 
       let hoveredCardId: string | null = null;
       let hoveredKind: 'kanban' | 'column' | null = null;
-      // Set when the drag crosses its threshold and pushes an undo entry; read
-      // only by the stand-down path in onUp, which unwinds it.
-      let undoDepth = -1;
-      let redoBefore: string[] = [];
 
       // Candidate kanban/column drop targets are snapshotted once here
       // (id, kind, and its rect) instead of re-scanning every card on the
@@ -1384,12 +1381,7 @@ export const canvasMethods = {
           // back so the controls could work. From here it is a real drag, so
           // the usual guarantees are wanted.
           takeCapture();
-          // Held so a drag that gets cancelled can put the history back
-          // exactly as it found it — pushUndo also clears the redo stack, so
-          // the old one has to be kept by reference to be restorable.
-          redoBefore = this.redoStack;
           this.pushUndo();
-          undoDepth = this.undoStack.length;
           startLift();
         }
         // Update smoothed velocity from instantaneous pointer speed — kept
@@ -1416,17 +1408,27 @@ export const canvasMethods = {
         // this drag ending. Skipped when cancelActiveCardDrag calls in, which
         // passes the drag's own id deliberately.
         if (ue.pointerId !== captureId) return;
-        // Only a real release ends the drag *somewhere*. Everything else is
-        // the gesture being taken away mid-flight: a second finger arriving,
-        // or the browser itself claiming the touch — which iPadOS does the
-        // moment a drag begins inside a scrolling region, and a storyboard's
-        // shot strip is one. Both arrive as pointercancel, whose coordinates
-        // are worthless: the synthetic one has none and WebKit reports (0, 0).
-        // Resolving the drag against them put the card at minus the grab point
-        // in board units — reported as a storyboard "zipping somewhere else on
-        // the canvas really quickly" when dragged by its body, while its
-        // header, with no scroll container under it and so no cancel, dragged
-        // normally.
+        // Only a real release says anything about *where* the drag ended.
+        // Everything else is the gesture being taken away mid-flight: a second
+        // finger arriving, or the browser claiming the touch — which iPadOS
+        // does the moment a drag begins inside a scrolling region, and a
+        // storyboard's shot strip is one. Both arrive as a pointercancel whose
+        // coordinates are worthless: the synthetic one has none, and WebKit
+        // reports (0, 0). Resolving the drag against those put the card at
+        // minus the grab point in board units — reported as a storyboard
+        // "zipping somewhere else on the canvas really quickly" when dragged
+        // by its body, while its header, with no scroll container under it and
+        // so no cancel, dragged normally.
+        //
+        // Note what this deliberately does NOT do: put the cards back. 1.2.4
+        // tried that and broke dragging outright, because a browser cancels a
+        // touch far more readily than the word suggests (iPadOS does it for a
+        // long press, a resting palm, a scroll it decides to claim) — so every
+        // drag that met one snapped home, reported as being unable to move
+        // anything on the canvas at all. A cancelled drag still moved a card
+        // and the user still watched it move; leaving it where the pointer was
+        // last seen is the answer that is never wrong. Only the coordinates
+        // are distrusted, never the movement itself.
         const released = !cancelled && ue.type !== 'pointercancel';
         this.cancelActiveCardDrag = null;
         el.removeEventListener('pointermove', onMove);
@@ -1435,15 +1437,17 @@ export const canvasMethods = {
         // Harmless when they were never added (the non-video path).
         activeDocument.removeEventListener('pointerup', onUp);
         activeDocument.removeEventListener('pointercancel', onUp);
-        // A pending frame has to be unscheduled either way — it must never
-        // fire after the drag is over. A release then flushes it once more at
-        // the release position, so the card lands exactly under the finger
-        // instead of one frame behind it. A cancel flushes nothing: its
-        // coordinates are unusable, and the stand-down below is putting the
-        // cards back regardless.
+        // The pending frame is unscheduled and flushed by hand, so it can
+        // neither be lost nor fire after the drag is over. A release refines
+        // it with the release coordinates, landing the card exactly under the
+        // pointer instead of one frame behind it; a cancel's coordinates are
+        // worthless, so it flushes at the last position a pointermove
+        // actually reported. Overwriting with them regardless is what threw
+        // the card off the board.
         if (moveFramePending) {
           window.cancelAnimationFrame(moveFrameId);
-          if (released) { latestX = ue.clientX; latestY = ue.clientY; flushMoveFrame(); }
+          if (released) { latestX = ue.clientX; latestY = ue.clientY; }
+          flushMoveFrame();
         }
         if (hoveredCardId) this.cardEls.get(hoveredCardId)?.removeClass('is-kanban-drop-target');
         this.clearTrashHover();
@@ -1457,32 +1461,6 @@ export const canvasMethods = {
         // on a normal canvas drop.
         const absorbing = released && (!!(dragMoved && hoveredCardId) || trashing);
         endLift(dragMoved && !absorbing);
-        // The gesture turned out to be a pinch or a scroll, so as far as the
-        // board is concerned the drag never happened: put the cards back and
-        // drop the undo entry crossing the threshold pushed, rather than
-        // leaving them nudged a few pixels with a no-op undo to step through.
-        // The marquee stands down the same way, discarding its box outright.
-        if (!released) {
-          if (dragMoved) {
-            for (const [id, start] of startPos) {
-              const c = dragCardsById.get(id); const cel = this.cardEls.get(id);
-              if (!c || !cel) continue;
-              c.x = start.x; c.y = start.y;
-              cel.style.left = `${c.x}px`; cel.style.top = `${c.y}px`;
-              this.updateConnectionsForCard(id);
-            }
-            // Guarded rather than popped outright: only unwind the entry this
-            // drag itself pushed, never someone else's if anything managed to
-            // push in between.
-            if (this.undoStack.length === undoDepth) {
-              this.undoStack.pop();
-              this.redoStack = redoBefore;
-              this.refreshUndoRedoButtons();
-            }
-            this.contextBar?.reposition();
-          }
-          return;
-        }
         // Pressed the video overlay and let go without dragging — that's the
         // "Click to play or pause" the overlay's tooltip promises.
         if (onYouTubeOverlay && !dragMoved) toggleYouTubePlayback(el);
@@ -1842,7 +1820,15 @@ export const canvasMethods = {
   async activateTile(this: FreeformRenderer, tile: TileCard): Promise<void> {
     const { target } = tile;
     if (!target.path) { new Notice('This tile has no target set.'); return; }
-    if (target.kind === 'board') { await this.onNavigate(target.path); return; }
+    if (target.kind === 'board') {
+      this.openNestedBoard(
+        target.path,
+        path => { target.path = path; },
+        target.roomId,
+        roomId => { target.roomId = roomId; },
+      );
+      return;
+    }
     const file = this.app.vault.getAbstractFileByPath(target.path);
     if (!file) { new Notice(`Target no longer exists: ${target.path}`); return; }
     if (target.kind === 'note' || target.kind === 'canvas') {

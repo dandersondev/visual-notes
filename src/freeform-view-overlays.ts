@@ -516,19 +516,19 @@ export const overlaysMethods = {
 
     if (card.nestedBoardPath) {
       menu.addItem(i => i.setTitle('Open nested board').setIcon('layout-template').onClick(() => {
-        this.openNestedBoard(card.nestedBoardPath!, (p) => { card.nestedBoardPath = p; });
+        this.openNestedBoard(card.nestedBoardPath!, (p) => { card.nestedBoardPath = p; }, card.nestedBoardRoomId, (id) => { card.nestedBoardRoomId = id; });
       }));
       menu.addItem(i => i.setTitle('Unlink nested board').setIcon('unlink').onClick(() => {
         this.pushUndo();
-        card.nestedBoardPath = undefined; card.nestedBoardIcon = undefined;
+        card.nestedBoardPath = undefined; card.nestedBoardIcon = undefined; card.nestedBoardRoomId = undefined;
         this.renderCardBadges(el, card);
         this.scheduleSave();
       }));
     } else {
       menu.addItem(i => i.setTitle('Create nested board…').setIcon('layout-template').onClick(() => {
-        this.createNestedBoardFrom(this.cardDisplayName(card), (path, icon) => {
+        this.createNestedBoardFrom(this.cardDisplayName(card), (path, icon, roomId) => {
           this.pushUndo();
-          card.nestedBoardPath = path; card.nestedBoardIcon = icon;
+          card.nestedBoardPath = path; card.nestedBoardIcon = icon; card.nestedBoardRoomId = roomId;
           this.renderCardBadges(el, card);
         });
       }));

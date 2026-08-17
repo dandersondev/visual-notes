@@ -206,7 +206,7 @@ export const cardsCalendarMethods = {
       dayStyle: (date) => card.dayStyles?.[date],
       onDayBadgeClick: (date, style) => {
         if (style.nestedBoardPath) {
-          this.openNestedBoard(style.nestedBoardPath, (p) => { style.nestedBoardPath = p; this.scheduleSave(); });
+          this.openNestedBoard(style.nestedBoardPath, (p) => { style.nestedBoardPath = p; this.scheduleSave(); }, style.nestedBoardRoomId, (id) => { style.nestedBoardRoomId = id; });
         }
       },
     });
@@ -294,15 +294,15 @@ export const cardsCalendarMethods = {
         this.openNestedBoard(style.nestedBoardPath!, (p) => {
           this.ensureDayStyle(card, date).nestedBoardPath = p;
           this.scheduleSave();
-        });
+        }, style.nestedBoardRoomId, (id) => { this.ensureDayStyle(card, date).nestedBoardRoomId = id; });
       }));
       menu.addItem(i => i.setTitle('Unlink nested board').setIcon('unlink').onClick(() => {
-        mutate(s => { s.nestedBoardPath = undefined; s.nestedBoardIcon = undefined; });
+        mutate(s => { s.nestedBoardPath = undefined; s.nestedBoardIcon = undefined; s.nestedBoardRoomId = undefined; });
       }));
     } else {
       menu.addItem(i => i.setTitle('Create nested board…').setIcon('layout-template').onClick(() => {
-        this.createNestedBoardFrom(shortDate(date), (path, icon) => {
-          mutate(s => { s.nestedBoardPath = path; s.nestedBoardIcon = icon; });
+        this.createNestedBoardFrom(shortDate(date), (path, icon, roomId) => {
+          mutate(s => { s.nestedBoardPath = path; s.nestedBoardIcon = icon; s.nestedBoardRoomId = roomId; });
         });
       }));
     }
@@ -383,15 +383,15 @@ export const cardsCalendarMethods = {
       menu.addSeparator();
       if (note.nestedBoardPath) {
         menu.addItem(i => i.setTitle('Open nested board').setIcon('layout-template').onClick(() => {
-          this.openNestedBoard(note.nestedBoardPath!, (p) => { note.nestedBoardPath = p; });
+          this.openNestedBoard(note.nestedBoardPath!, (p) => { note.nestedBoardPath = p; }, note.nestedBoardRoomId, (id) => { note.nestedBoardRoomId = id; });
         }));
         menu.addItem(i => i.setTitle('Unlink nested board').setIcon('unlink').onClick(() => {
-          this.pushUndo(); note.nestedBoardPath = undefined; note.nestedBoardIcon = undefined; commit();
+          this.pushUndo(); note.nestedBoardPath = undefined; note.nestedBoardIcon = undefined; note.nestedBoardRoomId = undefined; commit();
         }));
       } else {
         menu.addItem(i => i.setTitle('Create nested board…').setIcon('layout-template').onClick(() => {
-          this.createNestedBoardFrom(note.text || 'Note', (path, icon) => {
-            this.pushUndo(); note.nestedBoardPath = path; note.nestedBoardIcon = icon; commit();
+          this.createNestedBoardFrom(note.text || 'Note', (path, icon, roomId) => {
+            this.pushUndo(); note.nestedBoardPath = path; note.nestedBoardIcon = icon; note.nestedBoardRoomId = roomId; commit();
           });
         }));
       }

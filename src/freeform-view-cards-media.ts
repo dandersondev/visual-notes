@@ -48,7 +48,7 @@ declare module './freeform-view' {
     renderImageContent(el: HTMLElement, card: ImageCard): void;
     renderAudioContent(el: HTMLElement, card: AudioCard): void;
     renderVideoContent(el: HTMLElement, card: VideoCard): void;
-    showVideoFallback(el: HTMLElement, card: VideoCard, vf: TFile): void;
+    showVideoFallback(el: HTMLElement, card: VideoCard, vf: TFile | null): void;
     addVideo(): void;
     addVideoAt(x: number, y: number): void;
     handleDroppedVideo(file: File, x: number, y: number): Promise<void>;
@@ -87,6 +87,12 @@ export const cardsMediaMethods = {
       const vf = this.app.vault.getAbstractFileByPath(card.source.path);
       if (vf instanceof TFile) {
         img.src = this.app.vault.getResourcePath(vf);
+      } else if (card.source.sharedAsset && this.collaborationConfig?.room && this.collaborationConfig.assetClient) {
+        wrap.addClass('visual-notes-image-missing');
+        const label = wrap.createDiv({ cls: 'visual-notes-image-missing-label', text: 'Loading shared image…' });
+        void this.collaborationConfig.assetClient.ensureUrl(this.collaborationConfig.room, card.source.sharedAsset)
+          .then(url => { label.remove(); wrap.removeClass('visual-notes-image-missing'); img.src = url; })
+          .catch(() => { label.setText('Shared image unavailable'); img.remove(); });
       } else {
         wrap.addClass('visual-notes-image-missing');
         wrap.createDiv({ cls: 'visual-notes-image-missing-label', text: 'Image not found' });
@@ -222,14 +228,27 @@ export const cardsMediaMethods = {
   renderVideoContent(this: FreeformRenderer, el: HTMLElement, card: VideoCard): void {
     el.addClass('visual-notes-freeform-video-card');
     const vf = this.app.vault.getAbstractFileByPath(card.source.path);
-    if (!(vf instanceof TFile)) {
-      el.createDiv({ cls: 'visual-notes-video-missing', text: 'File not found' });
-      this.appendResizeHandles(el);
-      return;
+    const localFile = vf instanceof TFile ? vf : null;
+    const assetClient = this.collaborationConfig?.assetClient;
+    const room = this.collaborationConfig?.room;
+    const videoSrc = localFile ? this.app.vault.getResourcePath(localFile) : assetClient?.cachedStreamUrl(card.source.sharedAsset);
+    if (!videoSrc) {
+      if (assetClient && room && card.source.sharedAsset?.mimeType.startsWith('video/')) {
+        const loading = el.createDiv({ cls: 'visual-notes-video-missing', text: 'Loading shared video…' });
+        void assetClient.ensureStreamUrl(room, card.source.sharedAsset)
+          .then(() => { if (el.isConnected) this.renderCardContent(el, card); })
+          .catch(error => {
+            console.error('Visual Notes: could not authorize shared video playback', error);
+            loading.setText('Shared video unavailable');
+          });
+      } else {
+        el.createDiv({ cls: 'visual-notes-video-missing', text: 'File not found' });
+      }
+      this.appendResizeHandles(el); return;
     }
 
     const video = el.createEl('video');
-    video.src = this.app.vault.getResourcePath(vf);
+    video.src = videoSrc;
     // Chromium's own controls are deliberately NOT used. They live in a closed
     // shadow root, so nothing here can ask whether a press landed on them --
     // which is what defeated 1.1.28 (a fixed 40px strip, wrong the moment
@@ -255,14 +274,15 @@ export const cardsMediaMethods = {
     // disk to show pictures nobody has asked to play yet.
     video.preload = 'metadata';
     video.addClass('visual-notes-video-player');
-    video.setAttribute('aria-label', vf.basename);
+    const displayName = localFile?.name ?? card.source.sharedAsset?.name ?? card.source.path.split('/').pop() ?? 'Shared video';
+    video.setAttribute('aria-label', displayName.replace(/\.[^.]+$/, ''));
     // Focus must never land here. A focused <video> consumes space and the
     // arrow keys for its own play/seek, which is what made the board's space-
     // to-pan "stop working randomly" -- and those shortcuts were separately
     // gated on the canvas holding focus, so a click on a video killed them
     // both ways. See docKeyDown.
     video.setAttribute('tabindex', '-1');
-    el.setAttribute('title', vf.name);
+    el.setAttribute('title', displayName);
 
     // A press on the video body is still left alone until it moves, so the
     // card drags from its picture as asked. Body click toggles playback, which
@@ -358,7 +378,7 @@ export const cardsMediaMethods = {
     // mkv and avi generally cannot be decoded by Electron's Chromium, and mov
     // depends on its codec. Rather than a dead black rectangle, offer the one
     // thing that definitely works.
-    video.addEventListener('error', () => { this.showVideoFallback(el, card, vf); });
+    video.addEventListener('error', () => { this.showVideoFallback(el, card, localFile); });
 
     // Fit the card to the clip rather than letterboxing it -- a portrait phone
     // video in a 16:9 box is mostly empty. Mirrors what measureImageH does for
@@ -403,25 +423,28 @@ export const cardsMediaMethods = {
   },
 
   /** Replaces an unplayable video with something that can still be acted on. */
-  showVideoFallback(this: FreeformRenderer, el: HTMLElement, card: VideoCard, vf: TFile): void {
+  showVideoFallback(this: FreeformRenderer, el: HTMLElement, card: VideoCard, vf: TFile | null): void {
     el.empty();
     el.addClass('is-unplayable');
     const wrap = el.createDiv('visual-notes-video-fallback');
     const iconEl = wrap.createDiv('visual-notes-video-fallback-icon');
     setIcon(iconEl, 'file-video');
-    wrap.createDiv({ cls: 'visual-notes-video-fallback-name', text: vf.name });
+    const name = vf?.name ?? card.source.sharedAsset?.name ?? card.source.path.split('/').pop() ?? 'Shared video';
+    wrap.createDiv({ cls: 'visual-notes-video-fallback-name', text: name });
     wrap.createDiv({
       cls: 'visual-notes-video-fallback-msg',
       text: 'Obsidian can’t play this format on the canvas.',
     });
-    const btn = wrap.createDiv({ cls: 'visual-notes-video-fallback-btn', text: 'Open externally' });
-    btn.addEventListener('pointerdown', (e) => e.stopPropagation());
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.app.workspace.getLeaf('tab').openFile(vf).catch(() => {
-        new Notice(`Could not open ${vf.name}.`);
+    if (vf) {
+      const btn = wrap.createDiv({ cls: 'visual-notes-video-fallback-btn', text: 'Open externally' });
+      btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.app.workspace.getLeaf('tab').openFile(vf).catch(() => {
+          new Notice(`Could not open ${vf.name}.`);
+        });
       });
-    });
+    }
     this.appendResizeHandles(el);
   },
 

@@ -10,6 +10,7 @@ import {
   inlineRemoteImages, EXPORT_IMAGE_TOLERANCE,
 } from './freeform-view-shared';
 import type { FreeformRenderer } from './freeform-view';
+import type { CollaborationAssetClient } from './collaboration-assets';
 import { deliverExport } from './asset-manager';
 import { dataUrlToBytes } from './pdf-export';
 import {
@@ -48,7 +49,7 @@ function newShot(index = 1): StoryboardShot {
   };
 }
 
-function imageSrc(app: App, shot: StoryboardShot): string | null {
+function imageSrc(app: App, shot: StoryboardShot, assetClient?: CollaborationAssetClient): string | null {
   const source = shot.background;
   if (!source) return null;
   if (source.type === 'external') {
@@ -56,7 +57,7 @@ function imageSrc(app: App, shot: StoryboardShot): string | null {
     catch { return null; }
   }
   const file = app.vault.getAbstractFileByPath(source.path);
-  return file instanceof TFile ? app.vault.getResourcePath(file) : null;
+  return file instanceof TFile ? app.vault.getResourcePath(file) : assetClient?.cachedUrl(source.sharedAsset) ?? null;
 }
 
 function ratioValue(ratio: StoryboardAspectRatio): number {
@@ -187,13 +188,16 @@ export function bindStoryboardPointerGesture(
  * Keeping this boundary small lets image and map cards reuse the annotation
  * primitive later without bringing the Storyboard modal with them.
  */
-export function renderStoryboardShot(app: App, host: HTMLElement, shot: StoryboardShot, compact = false): void {
+export function renderStoryboardShot(app: App, host: HTMLElement, shot: StoryboardShot, compact = false, assetClient?: CollaborationAssetClient): void {
   host.empty();
   host.addClass('visual-notes-storyboard-frame');
   host.style.aspectRatio = String(ratioValue(shot.aspectRatio));
-  const src = imageSrc(app, shot);
+  const src = imageSrc(app, shot, assetClient);
   if (src) host.createEl('img', { cls: 'visual-notes-storyboard-background', attr: { src } });
-  else host.createDiv({ cls: 'visual-notes-storyboard-empty-frame', text: compact ? '' : 'Add a background image' });
+  else host.createDiv({
+    cls: 'visual-notes-storyboard-empty-frame',
+    text: compact ? '' : shot.background?.type === 'vault' && shot.background.sharedAsset ? 'Loading shared image…' : 'Add a background image',
+  });
 
   const svg = createSvg('svg');
   svg.setAttribute('class', 'visual-notes-storyboard-ink');
@@ -916,6 +920,14 @@ export const cardsStoryboardMethods = {
     if (previousPlayback && previousPlayback.timer !== null) window.clearTimeout(previousPlayback.timer);
     cardPlaybacks.delete(card.id);
     el.addClass('visual-notes-freeform-storyboard-card');
+    const assetClient = this.collaborationConfig?.assetClient;
+    const room = this.collaborationConfig?.room;
+    if (assetClient && room) for (const shot of allShots(card)) {
+      const asset = shot.background?.type === 'vault' ? shot.background.sharedAsset : undefined;
+      if (asset && !assetClient.cachedUrl(asset)) void assetClient.ensureUrl(room, asset)
+        .then(() => { if (el.isConnected) this.renderCardContent(el, card); })
+        .catch(error => console.error('Visual Notes: could not load shared storyboard image', error));
+    }
     const header = el.createDiv('visual-notes-storyboard-card-header');
     const preview = el.createDiv(`visual-notes-storyboard-preview is-${card.view ?? 'filmstrip'} is-size-${card.previewSize ?? 'md'}`);
     header.createDiv({ cls: 'visual-notes-storyboard-card-title', text: card.title ?? 'Untitled storyboard' });
@@ -960,7 +972,7 @@ export const cardsStoryboardMethods = {
         preview.empty(); preview.addClass('is-playing');
         const player = preview.createDiv('visual-notes-storyboard-player');
         const frame = player.createDiv('visual-notes-storyboard-player-frame');
-        renderStoryboardShot(this.app, frame, shot);
+        renderStoryboardShot(this.app, frame, shot, false, assetClient);
         player.createDiv({
           cls: 'visual-notes-storyboard-player-label',
           text: `${index + 1} / ${shots.length} · ${shot.shot || 'Shot'}${shot.title ? ` — ${shot.title}` : ''}`,
@@ -984,7 +996,7 @@ export const cardsStoryboardMethods = {
     for (const shot of allShots(card)) {
       const thumb = preview.createDiv('visual-notes-storyboard-preview-shot');
       const frame = thumb.createDiv('visual-notes-storyboard-preview-frame');
-      renderStoryboardShot(this.app, frame, shot, true);
+      renderStoryboardShot(this.app, frame, shot, true, assetClient);
       if (shot.notes?.trim()) thumb.createDiv({ cls: 'visual-notes-storyboard-preview-notes', text: shot.notes.trim() });
     }
     if (!count) preview.createDiv({ cls: 'visual-notes-storyboard-preview-empty', text: 'Open the editor to add a shot' });

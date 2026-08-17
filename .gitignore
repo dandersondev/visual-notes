@@ -4,3 +4,7 @@ main.js
 data.json
 .claude/
 coverage/
+collaboration-server/dist/
+collaboration-server/.data/
+.collaboration-runtime/
+**/.data/

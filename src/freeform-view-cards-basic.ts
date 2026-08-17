@@ -83,6 +83,7 @@ declare module './freeform-view' {
     rebuildChecklistCard(card: ChecklistCard): void;
     addTile(): void;
     addTileAt(x: number, y: number): void;
+    prepareBoardTileCollaboration(tile: TileCard): Promise<void>;
     addSticky(): void;
     addStickyAt(x: number, y: number, initialText?: string): void;
     addBlankCard(): void;
@@ -1324,11 +1325,15 @@ export const cardsBasicMethods = {
   addTile(this: FreeformRenderer): void { const p = this.centerPos(TILE_DEFAULT_W, TILE_DEFAULT_H); this.addTileAt(p.x, p.y); },
 
   addTileAt(this: FreeformRenderer, x: number, y: number): void {
-    new TileModal(this.app, null, (t) => {
+    new TileModal(this.app, null, (t) => { void (async () => {
       t.x = x; t.y = y; t.w = TILE_DEFAULT_W; t.h = TILE_DEFAULT_H; t.z = this.nextZ();
-      this.pushUndo(); this.board.cards.push(t); void this.saveNow();
+      try { await this.prepareBoardTileCollaboration(t); }
+      catch (error) {
+        new Notice(`Board tile was created locally but could not be shared: ${error instanceof Error ? error.message : String(error)}`, 10000);
+      }
+      this.pushUndo(); this.board.cards.push(t); await this.saveNow();
       this.createCardEl(t); this.selection.select(t.id); this.refreshSelectionVisuals();
-    }, this.file).open();
+    })(); }, this.file).open();
   },
 
   addSticky(this: FreeformRenderer): void { const p = this.centerPos(STICKY_DEFAULT_W, STICKY_DEFAULT_H); this.addStickyAt(p.x, p.y); },

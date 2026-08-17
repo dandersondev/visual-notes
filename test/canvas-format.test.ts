@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { visualNotesToCanvas, canvasToVisualNotes, isVisualNotesCanvas, type CanvasData } from '../src/canvas-format';
 import type {
   VisualNotesFile, TileCard, StickyCard, ChecklistCard, KanbanBoardCard, GroupCard, Connection, StoryboardCard,
+  ColumnCard, CalendarCard,
 } from '../src/file-types';
 
 function board(cards: VisualNotesFile['cards'], connections: Connection[] = []): VisualNotesFile {
@@ -60,6 +61,46 @@ describe('canvas-format round trips', () => {
 
     const outChecklist = out.cards.find(c => c.id === 'c1') as ChecklistCard;
     expect(outChecklist.items).toEqual(checklist.items);
+  });
+
+  it('round-trips hosted nested-board identifiers in every supported container', () => {
+    const boardTile: TileCard = {
+      id: 'board-tile', kind: 'tile', x: -240, y: 0, w: 200, h: 120,
+      label: 'Tile link', icon: 'layout-dashboard', color: '#3B82F6',
+      target: { kind: 'board', path: 'Root/Tile.canvas', roomId: 'private:tile-child' },
+    };
+    const topLevel: StickyCard = {
+      id: 'top', kind: 'sticky', x: 0, y: 0, w: 240, h: 180,
+      text: 'Top-level link', color: '#fff', nestedBoardPath: 'Root/Top.canvas',
+      nestedBoardRoomId: 'private:top-child',
+    };
+    const column: ColumnCard = {
+      id: 'column', kind: 'column', x: 300, y: 0, w: 320, h: 420, children: [{
+        id: 'column-child', kind: 'sticky', x: 0, y: 0, w: 240, h: 180,
+        text: 'Column link', color: '#fff', nestedBoardPath: 'Root/Column.canvas',
+        nestedBoardRoomId: 'private:column-child',
+      }],
+    };
+    const kanban: KanbanBoardCard = {
+      id: 'kanban', kind: 'kanban-board', x: 0, y: 500, w: 580, h: 420,
+      columns: [{ id: 'lane', color: '#eee', items: [{
+        id: 'item', text: 'Kanban link', done: false, nestedBoardPath: 'Root/Kanban.canvas',
+        nestedBoardRoomId: 'private:kanban-child',
+      }] }],
+    };
+    const calendar: CalendarCard = {
+      id: 'calendar', kind: 'calendar', x: 650, y: 0, w: 640, h: 500,
+      dayStyles: { '2026-08-16': {
+        nestedBoardPath: 'Root/Day.canvas', nestedBoardRoomId: 'private:day-child',
+      } },
+      notes: [{
+        id: 'note', date: '2026-08-16', text: 'Calendar link',
+        nestedBoardPath: 'Root/Note.canvas', nestedBoardRoomId: 'private:note-child',
+      }],
+    };
+
+    const out = canvasToVisualNotes(visualNotesToCanvas(board([boardTile, topLevel, column, kanban, calendar])));
+    expect(out.cards).toEqual([boardTile, topLevel, column, kanban, calendar]);
   });
 
   it('round-trips a multi-column kanban board including item done-state via native text sync', () => {

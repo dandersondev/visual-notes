@@ -225,19 +225,19 @@ export const cardsColumnMethods = {
       menu.addSeparator();
       if (child.nestedBoardPath) {
         menu.addItem(i => i.setTitle('Open nested board').setIcon('layout-template').onClick(() => {
-          this.openNestedBoard(child.nestedBoardPath!, (p) => { child.nestedBoardPath = p; });
+          this.openNestedBoard(child.nestedBoardPath!, (p) => { child.nestedBoardPath = p; }, child.nestedBoardRoomId, (id) => { child.nestedBoardRoomId = id; });
         }));
         menu.addItem(i => i.setTitle('Unlink nested board').setIcon('unlink').onClick(() => {
           this.pushUndo();
-          child.nestedBoardPath = undefined; child.nestedBoardIcon = undefined;
+          child.nestedBoardPath = undefined; child.nestedBoardIcon = undefined; child.nestedBoardRoomId = undefined;
           this.rebuildColumnChild(column, child);
           this.scheduleSave();
         }));
       } else {
         menu.addItem(i => i.setTitle('Create nested board…').setIcon('layout-template').onClick(() => {
-          this.createNestedBoardFrom(this.cardDisplayName(child), (path, icon) => {
+          this.createNestedBoardFrom(this.cardDisplayName(child), (path, icon, roomId) => {
             this.pushUndo();
-            child.nestedBoardPath = path; child.nestedBoardIcon = icon;
+            child.nestedBoardPath = path; child.nestedBoardIcon = icon; child.nestedBoardRoomId = roomId;
             this.rebuildColumnChild(column, child);
           });
         }));

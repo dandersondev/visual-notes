@@ -94,6 +94,55 @@ describe('normalizeSettings', () => {
 
   it('keeps valid enum values', () => {
     expect(normalizeSettings(settings({ toolbarPosition: 'bottom' })).toolbarPosition).toBe('bottom');
+    expect(normalizeSettings(settings({ collaborationTransport: 'websocket' })).collaborationTransport).toBe('private-network');
+    expect(normalizeSettings(settings({ collaborationTransport: 'private-network' })).collaborationTransport).toBe('private-network');
+  });
+
+  it('purges dormant hosted collaboration and OIDC configuration', () => {
+    const out = normalizeSettings(settings({
+      collaborationServerUrl: 'wss://hosted.example',
+      collaborationDevelopmentToken: 'development-secret',
+      collaborationAuthentication: 'oidc',
+      collaborationOidcIssuer: 'https://issuer.example',
+      collaborationOidcClientId: 'public-client',
+      collaborationOidcScope: 'openid offline_access',
+      collaborationOidcAudience: 'https://api.example',
+      collaborationPrivateNetworkToken: 'a-legacy-plaintext-private-network-secret',
+    }));
+    expect(out).not.toHaveProperty('collaborationServerUrl');
+    expect(out).not.toHaveProperty('collaborationDevelopmentToken');
+    expect(out).not.toHaveProperty('collaborationAuthentication');
+    expect(out).not.toHaveProperty('collaborationOidcIssuer');
+    expect(out).not.toHaveProperty('collaborationOidcClientId');
+    expect(out).not.toHaveProperty('collaborationOidcScope');
+    expect(out).not.toHaveProperty('collaborationOidcAudience');
+    expect(out).not.toHaveProperty('collaborationPrivateNetworkToken');
+  });
+
+  // The hosted/OIDC stack is still compiled into the bundle as a dormant
+  // foundation: the Auth0 settings rows, the browser sign-in client, and the
+  // server's OIDC mode. The ONLY thing keeping all of it unreachable is that
+  // normalizeSettings can never hand back 'websocket' -- every one of those
+  // settings rows is rendered behind that exact comparison. If this invariant
+  // is ever relaxed, the dormant UI and the shared development token become
+  // live again in the same instant, so assert it directly rather than trusting
+  // a reviewer to notice.
+  it.each([
+    ['a hand-edited websocket transport', { collaborationTransport: 'websocket' as const }],
+    ['websocket plus a hosted URL', {
+      collaborationTransport: 'websocket' as const,
+      collaborationServerUrl: 'wss://hosted.example',
+    }],
+    ['websocket plus OIDC', {
+      collaborationTransport: 'websocket' as const,
+      collaborationAuthentication: 'oidc' as const,
+    }],
+    ['websocket with collaboration switched on', {
+      collaborationTransport: 'websocket' as const,
+      experimentalCollaboration: true,
+    }],
+  ])('never yields the hosted websocket transport from %s', (_label, over) => {
+    expect(normalizeSettings(settings(over)).collaborationTransport).not.toBe('websocket');
   });
 
   it.each([
@@ -120,6 +169,25 @@ describe('normalizeSettings', () => {
     }));
     expect(out.dotColor).toBeUndefined();
     expect(out.snapToGrid).toBeUndefined();
+  });
+
+  it('validates experimental collaboration settings without enabling them', () => {
+    const out = normalizeSettings(settings({
+      experimentalCollaboration: 'yes' as unknown as boolean,
+      collaborationClientId: 42 as unknown as string,
+      collaborationDisplayName: 'Daniel',
+      collaborationColor: '#abcdef',
+      collaborationAuthentication: 'password' as unknown as 'oidc',
+      collaborationOidcIssuer: 42 as unknown as string,
+      collaborationOidcAudience: 42 as unknown as string,
+    }));
+    expect(out.experimentalCollaboration).toBeUndefined();
+    expect(out.collaborationClientId).toBeUndefined();
+    expect(out.collaborationDisplayName).toBe('Daniel');
+    expect(out.collaborationColor).toBe('#abcdef');
+    expect(out.collaborationAuthentication).toBeUndefined();
+    expect(out.collaborationOidcIssuer).toBeUndefined();
+    expect(out.collaborationOidcAudience).toBeUndefined();
   });
 
   it('coerces a non-boolean openOnStartup back to the default', () => {

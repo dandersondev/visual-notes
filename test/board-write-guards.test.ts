@@ -140,19 +140,17 @@ describe('writeBoardFile: a revision we did not expect is never destroyed', () =
     expect(after.nodes.map(n => n.id)).toContain('mine');
   });
 
-  it('preserves the other revision, and still saves ours', async () => {
+  it('automatically combines independent changes from both revisions', async () => {
     const { vault, file } = vaultWithBoard();
     const loaded = await readBoardFile(vault.toApp(), file);
     loaded.cards.push(sticky('mine'));
-    const theirs = externalEdit(vault, ['theirs']);
+    externalEdit(vault, ['theirs']);
 
     await writeBoardFile(vault.toApp(), file, loaded);
 
-    // Their work is recoverable...
-    expect(vault.textAt('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(theirs);
-    // ...and the user was not interrupted: their save landed.
+    expect(vault.has('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(false);
     const after = JSON.parse(vault.textAt('Board.canvas')) as { nodes: { id: string }[] };
-    expect(after.nodes.map(n => n.id)).toContain('mine');
+    expect(after.nodes.map(n => n.id)).toEqual(expect.arrayContaining(['mine', 'theirs']));
   });
 
   it('leaves their revision alone entirely when we have nothing of our own to save', async () => {
@@ -213,22 +211,29 @@ describe('writeBoardFile: a revision we did not expect is never destroyed', () =
     expect(after.nodes.map(n => n.id)).toEqual(['fresh']);
   });
 
-  it('refreshes the conflict copy rather than accumulating one per save', async () => {
+  it('backs up and refreshes a remote revision for true same-field collisions', async () => {
     const { vault, file } = vaultWithBoard();
     const loaded = await readBoardFile(vault.toApp(), file);
-    loaded.cards.push(sticky('mine'));
+    (loaded.cards[0] as StickyCard).text = 'mine-one';
 
-    externalEdit(vault, ['first-theirs']);
+    const firstRemote = board([sticky('s1'), sticky('s2')]);
+    (firstRemote.cards[0] as StickyCard).text = 'theirs-one';
+    vault.putText('Board.canvas', JSON.stringify(visualNotesToCanvas(firstRemote), null, 2));
     await writeBoardFile(vault.toApp(), file, loaded);
-    const latest = externalEdit(vault, ['second-theirs']);
-    loaded.cards.push(sticky('more'));
+    expect(vault.has('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(true);
+
+    const secondRemote = board([sticky('s1'), sticky('s2')]);
+    (secondRemote.cards[0] as StickyCard).text = 'theirs-two';
+    const latest = JSON.stringify(visualNotesToCanvas(secondRemote), null, 2);
+    vault.putText('Board.canvas', latest);
+    (loaded.cards[0] as StickyCard).text = 'mine-two';
     await writeBoardFile(vault.toApp(), file, loaded);
 
     // One file, holding their most recent work — which is the fullest.
     expect(vault.textAt('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(latest);
   });
 
-  it('keeps the emptying snapshot and the conflict copy apart', async () => {
+  it('keeps the emptying snapshot while preserving a concurrently added card', async () => {
     const { vault, file } = vaultWithBoard();
     const loaded = await readBoardFile(vault.toApp(), file);
     loaded.cards = [];                       // cleared here
@@ -237,7 +242,9 @@ describe('writeBoardFile: a revision we did not expect is never destroyed', () =
     await writeBoardFile(vault.toApp(), file, loaded);
 
     expect(vault.has('Board.canvas' + EMPTIED_BAK_SUFFIX)).toBe(true);
-    expect(vault.has('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(true);
+    expect(vault.has('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(false);
+    const after = JSON.parse(vault.textAt('Board.canvas')) as { nodes: { id: string }[] };
+    expect(after.nodes.map(node => node.id)).toContain('theirs');
   });
 
   it('catches a revision that lands after the emptying read but before the write', async () => {
@@ -254,7 +261,9 @@ describe('writeBoardFile: a revision we did not expect is never destroyed', () =
     await writeBoardFile(vault.toApp(), file, loaded);
 
     expect(theirs).not.toBe('');
-    expect(vault.textAt('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(theirs);
+    expect(vault.has('Board.canvas' + CONFLICT_BAK_SUFFIX)).toBe(false);
+    const after = JSON.parse(vault.textAt('Board.canvas')) as { nodes: { id: string }[] };
+    expect(after.nodes.map(node => node.id)).toContain('slipped-in');
   });
 
   it('still writes nothing at all for a board that failed to read', async () => {

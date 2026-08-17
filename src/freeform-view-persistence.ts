@@ -40,7 +40,11 @@ export const persistenceMethods = {
     };
     this.board.cards = snap.cards;
     this.board.connections = snap.connections ?? [];
-    this.board.archived = snap.archived;
+    // JSON.stringify omits undefined optional fields. Assigning the missing
+    // value back would create an own `archived: undefined` property, which is
+    // not JSON-safe and caused collaboration diffing to throw during undo.
+    if (snap.archived === undefined) delete this.board.archived;
+    else this.board.archived = snap.archived;
     // Older in-memory snapshots (pushed before drawings were included here)
     // won't have this key — falling back to the current drawings rather
     // than wiping them out is safer than an undefined->[] wipe mid-session.
@@ -142,6 +146,7 @@ export const persistenceMethods = {
       // current after any edit settles.
       this.refreshPassiveDataViews();
     }, 200);
+    this.scheduleCollaborationSync();
     this.saveQueue.schedule();
   },
 
@@ -150,6 +155,7 @@ export const persistenceMethods = {
   // viewport current before handing off to it, same as scheduleSave above.
   async saveNow(this: FreeformRenderer): Promise<void> {
     this.board.viewport = { ...this.vp };
+    await this.flushCollaborationSync();
     await this.saveQueue.flush();
   },
 };

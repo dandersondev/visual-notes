@@ -5,8 +5,10 @@ import { readBoardFile, writeBoardFile, classifyCanvasFile, NATIVE_BAK_SUFFIX } 
 import { GridRenderer } from './grid-view';
 import { FreeformRenderer } from './freeform-view';
 import { DEFAULT_PEN_DRAW_OPTIONS } from './pen-options-panel';
+import { ensureCollaborationIdentity } from './collaboration-identity';
 import { relinkBoardData } from './asset-manager';
 import { CreateBoardModal } from './create-board-modal';
+import { findBoardPathForRoom, loadBoardRoom, saveBoardRoom } from './collaboration-rooms';
 
 // Obsidian core's own view type string for its native Canvas view.
 export const NATIVE_CANVAS_VIEW_TYPE = 'canvas';
@@ -243,6 +245,45 @@ export class VisualNotesView extends FileView {
         (value) => { this.plugin.settings.penDrawOptions = value; void this.plugin.saveSettings(); },
         this.plugin.settings.panButton ?? 'middle',
         this.plugin.settings.appearanceButton !== false,
+        this.plugin.settings.experimentalCollaboration ? (() => {
+          const websocket = this.plugin.usesWebSocketCollaboration();
+          const room = websocket ? loadBoardRoom(window.localStorage, this.app.vault.getName(), file.path) : undefined;
+          const assetClient = websocket ? this.plugin.createCollaborationAssetClient() : undefined;
+          return {
+          transport: this.plugin.getCollaborationTransport(room),
+          identity: ensureCollaborationIdentity(
+            this.plugin.settings, undefined, window.localStorage, this.app.vault.getName()
+          ).identity,
+          label: this.plugin.settings.collaborationTransport === 'private-network'
+            ? 'Private network' : this.plugin.usesWebSocketCollaboration() ? 'Development server' : 'Local session',
+          room,
+          transportForRoom: websocket ? (nextRoom) => this.plugin.getCollaborationTransport(nextRoom) : undefined,
+          createRoom: websocket ? (initialBoard) => this.plugin.createCollaborationRoom(initialBoard) : undefined,
+          joinRoom: websocket ? (inviteCode) => this.plugin.resolveCollaborationRoom(inviteCode) : undefined,
+          saveRoom: websocket ? (nextRoom) => {
+            saveBoardRoom(window.localStorage, this.app.vault.getName(), file.path, nextRoom);
+            return Promise.resolve();
+          } : undefined,
+          listMembers: websocket ? (activeRoom) => this.plugin.listCollaborationRoomMembers(activeRoom) : undefined,
+          getRoomStorage: websocket ? (activeRoom) => this.plugin.getCollaborationRoomStorage(activeRoom) : undefined,
+          getRoomTree: websocket ? (activeRoom) => this.plugin.getCollaborationRoomTree(activeRoom) : undefined,
+          cleanupRoomAssets: websocket ? (activeRoom) => this.plugin.cleanupCollaborationRoomAssets(activeRoom) : undefined,
+          exportRoom: websocket ? (activeRoom) => this.plugin.exportCollaborationRoom(activeRoom) : undefined,
+          deleteRoom: websocket ? (activeRoom) => this.plugin.deleteCollaborationRoom(activeRoom) : undefined,
+          createChildRoom: websocket ? (parentRoom, childKey, childBoard) => this.plugin.createCollaborationChildRoom(parentRoom, childKey, childBoard) : undefined,
+          openChildRoom: websocket ? (parentRoom, childRoomId) => this.plugin.openCollaborationChildRoom(parentRoom, childRoomId) : undefined,
+          saveChildRoom: websocket ? (boardPath, childRoom) => {
+            saveBoardRoom(window.localStorage, this.app.vault.getName(), boardPath, childRoom);
+            return Promise.resolve();
+          } : undefined,
+          findBoardPathForRoom: websocket ? (roomId) =>
+            findBoardPathForRoom(window.localStorage, this.app.vault.getName(), roomId) : undefined,
+          rotateInvite: websocket ? (activeRoom, role) => this.plugin.rotateCollaborationRoomInvite(activeRoom, role) : undefined,
+          removeMember: websocket ? (activeRoom, clientId) => this.plugin.removeCollaborationRoomMember(activeRoom, clientId) : undefined,
+          formatInvite: websocket ? (inviteCode) => this.plugin.formatCollaborationInvite(inviteCode) : undefined,
+          assetClientForRoom: websocket ? () => this.plugin.createCollaborationAssetClient() : undefined,
+          assetClient,
+        }; })() : undefined,
       );
     } else {
       this.renderer = new GridRenderer(

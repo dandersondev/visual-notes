@@ -1,8 +1,9 @@
 {
   "name": "visual-notes",
-  "version": "1.2.4",
+  "version": "1.3.0",
   "description": "Visual Notes — a visual workspace for Obsidian",
   "main": "main.js",
+  "workspaces": ["collaboration-server"],
   "scripts": {
     "generate-templates": "node scripts/generate-starter-templates.mjs",
     "generate-benchmarks": "node scripts/generate-benchmark-boards.mjs",
@@ -10,13 +11,16 @@
     "dev": "node esbuild.config.mjs",
     "pretypecheck": "npm run generate-templates",
     "typecheck": "tsc --noEmit -p .",
-    "pretest": "npm run generate-templates",
+    "pretest": "npm run generate-templates && npm run collab:build",
     "test": "vitest run",
     "prelint": "npm run generate-templates",
     "lint": "eslint src",
     "sync-types": "node scripts/vendor-types.mjs",
-    "build": "npm run typecheck && npm run typecheck:upstream && npm run lint && node esbuild.config.mjs production",
-    "typecheck:upstream": "tsc --noEmit -p tsconfig.build.json"
+    "build": "npm run collab:build && npm run typecheck && npm run typecheck:upstream && npm run lint && node esbuild.config.mjs production",
+    "typecheck:upstream": "tsc --noEmit -p tsconfig.build.json",
+    "collab:build": "npm --workspace collaboration-server run build",
+    "collab:start": "npm --workspace collaboration-server run start",
+    "collab:dev": "npm --workspace collaboration-server run dev"
   },
   "keywords": [],
   "author": "Daniel Anderson",

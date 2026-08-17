@@ -2,6 +2,25 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.3.0
+
+### Added
+- **Experimental private-network collaboration.** A desktop Visual Notes installation can host a live room over a trusted LAN or user-provided virtual network, while desktop and mobile collaborators join by invitation. Ordinary cards, Kanban boards, drawings, connections, nested boards, cursors, selections, images, and supported videos synchronize while every participant retains a local `.canvas` file.
+- **Room roles and controls.** Rooms support owner, editor, and viewer access, separate editor/viewer invitations, invitation rotation, member removal, room-tree export and deletion, shared-media accounting, and delayed cleanup of orphaned media.
+- **Automatic desktop hosting.** The production plugin bundle contains the private-room server, so the host does not need Node, Docker, or a terminal. The host chooses a detected LAN/VPN interface and keeps Obsidian open; mobile remains join-only.
+
+### Security and privacy
+- Collaboration is opt-in and private-network-only. Visual Notes operates no collaboration cloud, receives no room data, creates no accounts, and adds no telemetry.
+- The active server credential is held in Obsidian SecretStorage. Older plaintext development/Auth0 fields and OAuth sessions are removed automatically on load.
+- Runtime room databases, transferred assets, generated server files, and plugin data are excluded from Git. Invitations contain credentials and are explicitly treated as passwords.
+- Hosted-development and Auth0 controls remain unavailable in the release UI.
+- **Collaboration requires Obsidian 1.11.4 or newer**, which is where Obsidian added the secure storage the server secret is kept in. Rather than raise the plugin's minimum Obsidian version for one opt-in feature, Visual Notes checks for that storage at runtime: on Obsidian 1.7.2 through 1.11.3 the collaboration setting explains that it needs a newer Obsidian, and **every other feature — and every future update — works exactly as before**.
+- The room server binds only to the private network interface chosen when hosting starts, never to every interface, and refuses to start beyond loopback without a strong secret. The shared secret is compared in constant time.
+
+### Fixed
+- Undo now synchronizes to collaborators without creating a non-JSON optional field or disrupting the session.
+- A normal Kanban reorder publishes one stable-ID move instead of one move per surviving item, substantially reducing remote latency and host disk writes.
+
 ## 1.2.4
 
 ### Fixed

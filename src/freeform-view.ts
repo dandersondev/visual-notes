@@ -16,7 +16,7 @@ import {
 } from './canvas/pan-zoom';
 import { SelectionManager } from './canvas/selection';
 import { ContextBar } from './context-bar';
-import { createBoardFile, writeBoardFile } from './file-io';
+import { createBoardFile, readBoardFile, writeBoardFile } from './file-io';
 import { SaveQueue } from './save-queue';
 import {
   TILE_DEFAULT_W, TILE_DEFAULT_H,
@@ -36,6 +36,43 @@ import { cardsStoryboardMethods } from './freeform-view-cards-storyboard';
 import { overlaysMethods } from './freeform-view-overlays';
 import { persistenceMethods } from './freeform-view-persistence';
 import { clipboardMethods } from './freeform-view-clipboard';
+import { collaborationMethods } from './freeform-view-collaboration';
+import { visualNotesToCanvas } from './canvas-format';
+import type { CollaborationIdentity } from './collaboration-identity';
+import type { CollaborationSession, CollaborationSessionState } from './collaboration-session';
+import type { CollaborationTransport } from './collaboration-transport';
+import type { CollaborationRoomCredentials } from './collaboration-rooms';
+import type { CollaborationChildRoomOpen } from './collaboration-rooms';
+import type { CollaborationRoomMember } from './collaboration-rooms';
+import type { CollaborationRoomStorage } from './collaboration-rooms';
+import type { CollaborationRoomTreeEntry } from './collaboration-rooms';
+import type { CollaborationAssetClient } from './collaboration-assets';
+
+export interface FreeformCollaborationConfig {
+  transport: CollaborationTransport;
+  identity: CollaborationIdentity;
+  label?: string;
+  room?: CollaborationRoomCredentials;
+  transportForRoom?: (room: CollaborationRoomCredentials) => CollaborationTransport;
+  createRoom?: (board: VisualNotesFile) => Promise<CollaborationRoomCredentials>;
+  joinRoom?: (inviteCode: string) => Promise<CollaborationRoomCredentials>;
+  saveRoom?: (room: CollaborationRoomCredentials | undefined) => Promise<void>;
+  listMembers?: (room: CollaborationRoomCredentials) => Promise<CollaborationRoomMember[]>;
+  getRoomStorage?: (room: CollaborationRoomCredentials) => Promise<CollaborationRoomStorage>;
+  getRoomTree?: (room: CollaborationRoomCredentials) => Promise<CollaborationRoomTreeEntry[]>;
+  cleanupRoomAssets?: (room: CollaborationRoomCredentials) => Promise<{ removedFromRoom: number; deletedFiles: number }>;
+  exportRoom?: (room: CollaborationRoomCredentials) => Promise<Record<string, unknown>>;
+  deleteRoom?: (room: CollaborationRoomCredentials) => Promise<void>;
+  createChildRoom?: (parent: CollaborationRoomCredentials, childKey: string, board: VisualNotesFile) => Promise<CollaborationRoomCredentials>;
+  openChildRoom?: (parent: CollaborationRoomCredentials, childRoomId: string) => Promise<CollaborationChildRoomOpen>;
+  saveChildRoom?: (boardPath: string, room: CollaborationRoomCredentials) => Promise<void>;
+  findBoardPathForRoom?: (roomId: string) => string | undefined;
+  rotateInvite?: (room: CollaborationRoomCredentials, role: 'editor' | 'viewer') => Promise<string>;
+  removeMember?: (room: CollaborationRoomCredentials, clientId: string) => Promise<void>;
+  formatInvite?: (inviteCode: string) => string;
+  assetClient?: CollaborationAssetClient;
+  assetClientForRoom?: () => CollaborationAssetClient | undefined;
+}
 
 // ── Renderer ───────────────────────────────────────────────────
 // FreeformRenderer's implementation is split across this file (fields,
@@ -258,6 +295,21 @@ export class FreeformRenderer extends Component {
   // a drag is live, cleared by its own teardown — see bindDelegatedCardEvents.
   cancelActiveCardDrag: (() => void) | null = null;
 
+  collaborationSession: CollaborationSession | null = null;
+  collaborationState: CollaborationSessionState | null = null;
+  collaborationUnsubscribe: (() => void) | null = null;
+  collaborationAssetUnsubscribe: (() => void) | null = null;
+  collaborationSyncTimer: number | null = null;
+  collaborationLastBoard: VisualNotesFile | null = null;
+  collaborationPublishingLocal = false;
+  collaborationPresenceEl: HTMLElement | null = null;
+  collaborationCursorEls = new Map<string, HTMLElement>();
+  collaborationSelectionEls: HTMLElement[] = [];
+  collaborationPointerAt = 0;
+  collaborationCursorLeaveTimer: number | null = null;
+  collaborationPresenceKey = '';
+  collaborationPointerEventsBound = false;
+
   // Manual long-press-to-contextmenu detection. Every card/item's own
   // pointerdown handler calls preventDefault() (needed to stop iOS from
   // scrolling or selecting text mid-drag) — but that side effect also kills
@@ -293,6 +345,7 @@ export class FreeformRenderer extends Component {
     public onPenDrawOptionsChange?: (value: PenDrawOptions) => void,
     public panButton: 'middle' | 'right' | 'either' = 'middle',
     public appearanceButtonEnabled = true,
+    public collaborationConfig?: FreeformCollaborationConfig,
   ) {
     super();
     this.vp = { ...(board.viewport ?? { x: 0, y: 0, zoom: 1 }) };
@@ -315,6 +368,7 @@ export class FreeformRenderer extends Component {
     // here for the same reason as the rename listener above: render() runs
     // again on every re-render, which would stack a duplicate each time.
     this.registerEvent(this.app.workspace.on('css-change', () => this.refreshAppearanceButton()));
+    if (this.collaborationConfig?.assetClient) this.register(() => this.collaborationConfig?.assetClient?.destroy());
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────
@@ -389,6 +443,7 @@ export class FreeformRenderer extends Component {
     this.renderMinimap();
     this.renderSearchWidget();
     this.renderFilterWidget();
+    this.startCollaboration();
 
     // Re-fetch stale bookmarks — capped so a board with many stale bookmarks
     // doesn't fire dozens of simultaneous network requests (and disk saves)
@@ -405,6 +460,8 @@ export class FreeformRenderer extends Component {
   }
 
   async destroy(): Promise<void> {
+    await this.flushCollaborationSync();
+    await this.stopCollaboration();
     this.exitConnectMode();
     this.deselectConnection();
     activeDocument.removeEventListener('keydown', this.docKeyDown);
@@ -572,13 +629,13 @@ export class FreeformRenderer extends Component {
       const resolved = this.resolveNestedBoard(card.nestedBoardPath);
       const boardName = resolved?.basename
         ?? card.nestedBoardPath.split('/').pop()?.replace(/\.canvas$/, '') ?? 'Board';
-      pill.toggleClass('is-missing', !resolved);
+      pill.toggleClass('is-missing', !resolved && !card.nestedBoardRoomId);
       pill.createSpan({ text: boardName });
       pill.setAttribute('aria-label', `Open nested board "${boardName}"`);
       pill.addEventListener('pointerdown', (e) => e.stopPropagation());
       pill.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.openNestedBoard(card.nestedBoardPath!, (p) => { card.nestedBoardPath = p; });
+        this.openNestedBoard(card.nestedBoardPath!, (p) => { card.nestedBoardPath = p; }, card.nestedBoardRoomId, (id) => { card.nestedBoardRoomId = id; });
       });
     }
     for (const label of card.labels ?? []) {
@@ -622,7 +679,7 @@ export class FreeformRenderer extends Component {
   // color icon so the two ends of the link visually match. onLinked runs
   // before the save/navigate so the caller can stamp nestedBoardPath/Icon
   // onto the source card in time for saveNow() to persist it.
-  createNestedBoardFrom(defaultName: string, onLinked: (path: string, icon: string) => void): void {
+  createNestedBoardFrom(defaultName: string, onLinked: (path: string, icon: string, roomId?: string) => void): void {
     new NamePromptModal(this.app, 'New nested board', 'Board name', (name) => { void (async () => {
       const iconDef = CUSTOM_ICONS[Math.floor(Math.random() * CUSTOM_ICONS.length)];
       const iconRef = customIconRef(iconDef.id);
@@ -638,12 +695,13 @@ export class FreeformRenderer extends Component {
       try { newFile = await createBoardFile(this.app, name, folder, 'freeform'); }
       catch { new Notice('Failed to create board.'); return; }
 
+      const parentRoom = this.collaborationConfig?.room;
       const backTile: TileCard = {
         id: crypto.randomUUID(), kind: 'tile',
         x: 40, y: 40, w: TILE_DEFAULT_W, h: TILE_DEFAULT_H,
         label: this.file.basename, subtitle: 'Parent board',
         icon: iconRef, color: '#3B82F6',
-        target: { kind: 'board', path: this.file.path },
+        target: { kind: 'board', path: this.file.path, ...(parentRoom ? { roomId: parentRoom.roomId } : {}) },
       };
       const seeded: VisualNotesFile = {
         version: 3, layout: 'freeform',
@@ -652,7 +710,16 @@ export class FreeformRenderer extends Component {
       };
       await writeBoardFile(this.app, newFile, seeded);
 
-      onLinked(newFile.path, iconRef);
+      let childRoom: CollaborationRoomCredentials | undefined;
+      if (parentRoom && this.collaborationConfig?.createChildRoom) {
+        try {
+          childRoom = await this.collaborationConfig.createChildRoom(parentRoom, backTile.id, seeded);
+          await this.collaborationConfig.saveChildRoom?.(newFile.path, childRoom);
+        } catch (error) {
+          new Notice(`Nested board was created locally but could not be shared: ${error instanceof Error ? error.message : String(error)}`, 10000);
+        }
+      }
+      onLinked(newFile.path, iconRef, childRoom?.roomId);
       await this.saveNow();
       new Notice(`Created nested board "${name}".`);
       void this.onNavigate(newFile.path);
@@ -677,14 +744,95 @@ export class FreeformRenderer extends Component {
   // Open a nested board chip/menu target, self-healing the stored path when
   // resolution found the file somewhere else (so the next open is a direct
   // hit and the healed path gets persisted).
-  openNestedBoard(path: string, heal: (newPath: string) => void): void {
+  openNestedBoard(
+    path: string,
+    heal: (newPath: string) => void,
+    childRoomId?: string,
+    setChildRoomId?: (roomId: string) => void,
+  ): void {
+    const parentRoom = this.collaborationConfig?.room;
+    if (childRoomId && parentRoom && this.collaborationConfig?.openChildRoom) {
+      void (async () => {
+        try {
+          const opened = await this.collaborationConfig!.openChildRoom!(parentRoom, childRoomId);
+          const localPath = this.collaborationConfig?.findBoardPathForRoom?.(childRoomId) ?? path;
+          let file = this.app.vault.getAbstractFileByPath(localPath);
+          if (!(file instanceof TFile)) {
+            const folderParts = localPath.split('/').slice(0, -1);
+            let current = '';
+            for (const part of folderParts) {
+              current = current ? `${current}/${part}` : part;
+              if (!this.app.vault.getAbstractFileByPath(current)) {
+                try { await this.app.vault.createFolder(current); } catch { /* a concurrent materialization may have made it */ }
+              }
+            }
+            const contents = JSON.stringify(visualNotesToCanvas(opened.board), null, 2);
+            try { file = await this.app.vault.create(localPath, contents); }
+            catch { file = this.app.vault.getAbstractFileByPath(localPath); }
+            if (!(file instanceof TFile)) throw new Error(`Could not create ${localPath}.`);
+          }
+          // An interrupted older materialisation could leave the exact target
+          // as a zero-byte placeholder. It contains no user data to preserve,
+          // and treating it as an existing board would make the reader fall
+          // back to Grid. Heal it from the authoritative hosted snapshot.
+          if (file.stat.size === 0) {
+            const contents = JSON.stringify(visualNotesToCanvas(opened.board), null, 2);
+            await this.app.vault.modify(file, contents);
+          }
+          await this.collaborationConfig!.saveChildRoom?.(file.path, opened.room);
+          void this.onNavigate(file.path);
+        } catch (error) {
+          new Notice(`Could not open collaborative nested board: ${error instanceof Error ? error.message : String(error)}`, 10000);
+        }
+      })();
+      return;
+    }
     const file = this.resolveNestedBoard(path);
     if (!file) {
       new Notice('Nested board not found — it may have been renamed or deleted while this board was closed. Unlink it from the context menu.');
       return;
     }
+    if (parentRoom && this.collaborationConfig?.createChildRoom && setChildRoomId) {
+      void (async () => {
+        try {
+          const childBoard = await readBoardFile(this.app, file);
+          if (childBoard.unreadable) throw new Error('The nested board could not be read safely.');
+          delete childBoard.baseline;
+          delete childBoard.unreadable;
+          delete childBoard.recoveredFromNativeEdit;
+          const childRoom = await this.collaborationConfig!.createChildRoom!(parentRoom, `${this.file.path}\0${file.path}`, childBoard);
+          setChildRoomId(childRoom.roomId);
+          await this.collaborationConfig!.saveChildRoom?.(file.path, childRoom);
+          await this.saveNow();
+          void this.onNavigate(file.path);
+        } catch (error) {
+          new Notice(`Could not share nested board: ${error instanceof Error ? error.message : String(error)}`, 10000);
+        }
+      })();
+      return;
+    }
     if (file.path !== path) { heal(file.path); this.scheduleSave(); }
     void this.onNavigate(file.path);
+  }
+
+  // Tile cards predate the nested-board chip fields and keep their link in
+  // target instead. Register that target as the same kind of hosted child
+  // before publishing a newly-created tile, so another vault never receives
+  // a path it cannot materialise.
+  async prepareBoardTileCollaboration(tile: TileCard): Promise<void> {
+    if (tile.target.kind !== 'board' || tile.target.roomId) return;
+    const parentRoom = this.collaborationConfig?.room;
+    if (!parentRoom || !this.collaborationConfig?.createChildRoom) return;
+    const file = this.resolveNestedBoard(tile.target.path);
+    if (!file) return;
+    const childBoard = await readBoardFile(this.app, file);
+    if (childBoard.unreadable) throw new Error('The target board could not be read safely.');
+    delete childBoard.baseline;
+    delete childBoard.unreadable;
+    delete childBoard.recoveredFromNativeEdit;
+    const childRoom = await this.collaborationConfig.createChildRoom(parentRoom, tile.id, childBoard);
+    tile.target.roomId = childRoom.roomId;
+    await this.collaborationConfig.saveChildRoom?.(file.path, childRoom);
   }
 
   // Live healing for renames/moves that happen while this board is open —
@@ -1338,4 +1486,4 @@ export class FreeformRenderer extends Component {
 
 }
 
-Object.assign(FreeformRenderer.prototype, canvasMethods, cardsBasicMethods, cardsTableMethods, cardsKanbanMethods, cardsColumnMethods, cardsMediaMethods, cardsCalendarMethods, cardsCheckersMethods, cardsStoryboardMethods, overlaysMethods, persistenceMethods, clipboardMethods);
+Object.assign(FreeformRenderer.prototype, canvasMethods, cardsBasicMethods, cardsTableMethods, cardsKanbanMethods, cardsColumnMethods, cardsMediaMethods, cardsCalendarMethods, cardsCheckersMethods, cardsStoryboardMethods, overlaysMethods, persistenceMethods, clipboardMethods, collaborationMethods);

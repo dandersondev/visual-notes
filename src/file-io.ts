@@ -3,6 +3,7 @@ import { VisualNotesFile } from './file-types';
 import { CanvasData, visualNotesToCanvas, canvasToVisualNotes, isVisualNotesCanvas, hasLostRootMetadata } from './canvas-format';
 import { migrateLegacyKanbanColumns } from './kanban-migrate';
 import { NamePromptModal } from './tile-modal';
+import { mergeBoards } from './board-merge';
 
 // ── Backups ───────────────────────────────────────────────────
 
@@ -204,7 +205,9 @@ export async function writeBoardFile(app: App, file: TFile, board: VisualNotesFi
   // write, the extra backup holds the user's own good data — harmless.
   await snapshotIfEmptying(app, file, board);
 
-  const next = JSON.stringify(visualNotesToCanvas(board), null, 2);
+  let next = JSON.stringify(visualNotesToCanvas(board), null, 2);
+  let mergedRemoteChanges = false;
+  let mergeConflictCount = 0;
 
   for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
     let onDisk: string | undefined = undefined;
@@ -234,6 +237,16 @@ export async function writeBoardFile(app: App, file: TFile, board: VisualNotesFi
       // someone else's change, and every save from here on writes a conflict
       // backup forever.
       board.baseline = next;
+      if (mergedRemoteChanges) {
+        new Notice(
+          mergeConflictCount === 0
+            ? `Visual Notes: Merged changes from another copy of "${file.basename}".`
+            : `Visual Notes: Merged changes to "${file.basename}" with ${mergeConflictCount} ` +
+              `collision${mergeConflictCount === 1 ? '' : 's'}. Your values were kept; the other revision is in ` +
+              `"${file.name}${CONFLICT_BAK_SUFFIX}".`,
+          mergeConflictCount === 0 ? 5000 : 12000,
+        );
+      }
       return;
     }
 
@@ -245,15 +258,27 @@ export async function writeBoardFile(app: App, file: TFile, board: VisualNotesFi
       return;
     }
 
-    await writeBackup(app, file.path + CONFLICT_BAK_SUFFIX, theirs, true);
-    new Notice(
-      `Visual Notes: "${file.basename}" was also changed somewhere else — another device, ` +
-      `or Obsidian's own Canvas view. Your version has been saved; the other one is in ` +
-      `"${file.name}${CONFLICT_BAK_SUFFIX}".`,
-      12000
-    );
-    // Their revision is safe on disk now, so take it as our base and let the
-    // loop write ours on top.
+    const baseBoard = parseBoardRevision(board.baseline);
+    const ourBoard = parseBoardRevision(next);
+    const theirBoard = parseBoardRevision(theirs);
+    if (baseBoard && ourBoard && theirBoard) {
+      const result = mergeBoards(baseBoard, ourBoard, theirBoard);
+      if (result.conflicts.length > 0) {
+        await writeBackup(app, file.path + CONFLICT_BAK_SUFFIX, theirs, true);
+        mergeConflictCount += result.conflicts.length;
+      }
+      applyBoardContent(board, result.board);
+      next = JSON.stringify(visualNotesToCanvas(board), null, 2);
+      mergedRemoteChanges = true;
+    } else {
+      // Unreadable revisions retain the conservative behaviour: preserve the
+      // disk copy and let the local save land.
+      await writeBackup(app, file.path + CONFLICT_BAK_SUFFIX, theirs, true);
+      mergeConflictCount++;
+      mergedRemoteChanges = true;
+    }
+    // Their revision is incorporated or safely backed up; use it as the new
+    // base for the atomic merged write.
     board.baseline = theirs;
   }
 
@@ -261,6 +286,38 @@ export async function writeBoardFile(app: App, file: TFile, board: VisualNotesFi
   // Throwing hands this to the caller's save queue, which tells the user their
   // changes are still on screen — far better than returning as if it saved.
   throw new Error(`"${file.name}" kept changing while Visual Notes tried to save it.`);
+}
+
+function parseBoardRevision(raw: string | undefined): VisualNotesFile | undefined {
+  if (raw === undefined) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return undefined;
+    if (!Array.isArray((parsed as Record<string, unknown>).nodes)) return undefined;
+    return migrateLegacyKanbanColumns(canvasToVisualNotes(parsed as CanvasData));
+  } catch {
+    return undefined;
+  }
+}
+
+/** Replaces serialized board state without disturbing runtime save flags. */
+function applyBoardContent(target: VisualNotesFile, source: VisualNotesFile): void {
+  target.version = source.version;
+  target.layout = source.layout;
+  target.cards = source.cards;
+  target.connections = source.connections;
+  target.drawings = source.drawings;
+  copyOptional(target, source, 'dotsHidden');
+  copyOptional(target, source, 'appearance');
+  copyOptional(target, source, 'viewport');
+  copyOptional(target, source, 'archived');
+  copyOptional(target, source, 'foreignNodes');
+  copyOptional(target, source, 'foreignEdges');
+}
+
+function copyOptional<K extends keyof VisualNotesFile>(target: VisualNotesFile, source: VisualNotesFile, key: K): void {
+  if (source[key] === undefined) delete target[key];
+  else target[key] = source[key];
 }
 
 /**

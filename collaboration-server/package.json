@@ -1,0 +1,19 @@
+{
+  "name": "@visual-notes/collaboration-server",
+  "version": "0.0.1-private",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "npm run typecheck && node esbuild.mjs",
+    "dev": "node esbuild.mjs --watch",
+    "start": "node dist/server.mjs"
+  },
+  "dependencies": {
+    "jose": "^6.2.9",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.0"
+  }
+}

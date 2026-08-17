@@ -1734,10 +1734,11 @@ describe('UI smoke: a second finger cannot hijack a card drag', () => {
     el.dispatchEvent(pointer('pointermove', 500, 500, { pointerType: 'touch', pointerId: 1 }));
 
     expect(renderer.cancelActiveCardDrag).toBeNull();
-    // Back at its pre-drag position, not left where the pinch happened to
-    // start: the gesture turned out to be a zoom, so no drag took place.
-    expect(board.cards[0].x).toBe(100);
-    expect(board.cards[0].y).toBe(100);
+    // Left where it had been dragged to. 1.2.4 sent it home instead, on the
+    // reasoning that a cancelled gesture never happened — see onUp for why
+    // that is wrong, and what it cost.
+    expect(board.cards[0].x).toBe(140);
+    expect(board.cards[0].y).toBe(132);
   });
 
   it('does not bin the card when the drag is cancelled', () => {
@@ -1751,26 +1752,19 @@ describe('UI smoke: a second finger cannot hijack a card drag', () => {
     expect(board.cards).toHaveLength(1);
   });
 
-  it('leaves the undo history exactly as it found it', () => {
-    // Crossing the drag threshold pushes an undo entry. A drag that then gets
-    // taken away has to unwind it, or the next Ctrl+Z is a step that restores
-    // nothing — and the redo it wiped on the way in has to come back too.
-    const { renderer, board, el } = dragging();
-    el.dispatchEvent(pointer('pointerup', 240, 232, { pointerType: 'touch', pointerId: 1, buttons: 0 }));
-    renderer.undo();                      // a completed move, undone: real redo
-    const undoDepth = renderer.undoStack.length;
-    const redoDepth = renderer.redoStack.length;
-    expect(redoDepth).toBeGreaterThan(0);
+  // 1.2.4's regression, and the reason this one is spelled out rather than
+  // left implied: a cancel was made to send the card home, which is defensible
+  // in the abstract and wrong in practice. iPadOS cancels a touch for a long
+  // press, a resting palm, or any scroll it decides to claim, so ordinary
+  // drags started meeting one and snapping back — "I can't move any items now
+  // on the canvas".
+  it('leaves a card where it was dragged to when the browser cancels the touch', () => {
+    const { board, el } = dragging();
 
-    // undo() rebuilds the cards, so the element from before it is stale.
-    const el2 = renderer.cardEls.get(board.cards[0].id)!;
-    el2.setPointerCapture = () => {}; el2.releasePointerCapture = () => {};
-    el2.dispatchEvent(pointer('pointerdown', 200, 200, { pointerType: 'touch', pointerId: 1 }));
-    el2.dispatchEvent(pointer('pointermove', 240, 232, { pointerType: 'touch', pointerId: 1 }));
-    secondFingerLands(renderer);
+    el.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 1, clientX: 240, clientY: 232 }));
 
-    expect(renderer.undoStack).toHaveLength(undoDepth);
-    expect(renderer.redoStack).toHaveLength(redoDepth);
+    expect(board.cards[0].x).toBe(140);
+    expect(board.cards[0].y).toBe(132);
   });
 });
 
@@ -1823,10 +1817,13 @@ describe('UI smoke: a cancelled card drag never lands on the cancel coordinates'
     // WebKit's pointercancel: real event, no usable position.
     el.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 1, clientX: 0, clientY: 0 }));
 
-    // Before the fix: x = 100 + (0 - 200) = -100, y = 100 + (0 - 200) = -100 —
-    // across the board and off the top-left, in a direction nothing moved in.
-    expect(board.cards[0].x).toBe(100);
-    expect(board.cards[0].y).toBe(100);
+    // The pending frame is still flushed — the card belongs where the pointer
+    // was last actually seen (+40, +32), not left a frame behind. What it must
+    // not do is take the cancel's own coordinates: that read as a drag to
+    // (0, 0), landing the card at 100 + (0 - 200) = -100 on both axes, across
+    // the board and off the top-left in a direction nothing moved in.
+    expect(board.cards[0].x).toBe(140);
+    expect(board.cards[0].y).toBe(132);
   });
 
   it('still lands on the release coordinates when the pointer is genuinely lifted', () => {
@@ -1844,13 +1841,12 @@ describe('UI smoke: a cancelled card drag never lands on the cancel coordinates'
     const { board, el } = dragging();
     el.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 1, clientX: 0, clientY: 0 }));
 
-    // A frame escaping the cancel would move the card again after it had
-    // already been put back — the cancel has to unschedule it, not just
-    // ignore it.
+    // onUp flushes by hand and unschedules the frame. One escaping would run
+    // against a drag that no longer exists.
     runFrames();
 
-    expect(board.cards[0].x).toBe(100);
-    expect(board.cards[0].y).toBe(100);
+    expect(board.cards[0].x).toBe(140);
+    expect(board.cards[0].y).toBe(132);
   });
 });
 

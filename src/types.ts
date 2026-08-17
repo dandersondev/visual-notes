@@ -68,6 +68,25 @@ export interface VisualNotesSettings {
   // feature that could be broken by an Obsidian release rather than by us.
   // Default on.
   appearanceButton?: boolean;
+
+  // Unreleased collaboration foundation. These values stay in this plugin's
+  // local data.json and are not written into boards or sent over a network.
+  experimentalCollaboration?: boolean;
+  collaborationClientId?: string;
+  collaborationDisplayName?: string;
+  collaborationColor?: string;
+  collaborationTransport?: 'loopback' | 'private-network' | 'websocket';
+  collaborationServerUrl?: string;
+  collaborationDevelopmentToken?: string;
+  collaborationPrivateNetworkUrl?: string;
+  collaborationPrivateNetworkToken?: string; // legacy plaintext migration only; removed on load
+  collaborationPrivateNetworkPort?: number;
+  collaborationPrivateNetworkHostAddress?: string;
+  collaborationAuthentication?: 'development' | 'oidc';
+  collaborationOidcIssuer?: string;
+  collaborationOidcClientId?: string;
+  collaborationOidcScope?: string;
+  collaborationOidcAudience?: string;
 }
 
 export const DEFAULT_SETTINGS: VisualNotesSettings = {

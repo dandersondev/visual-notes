@@ -906,12 +906,12 @@ export const cardsKanbanMethods = {
         const resolved = this.resolveNestedBoard(item.nestedBoardPath);
         const boardName = resolved?.basename
           ?? item.nestedBoardPath.split('/').pop()?.replace(/\.canvas$/, '') ?? 'Board';
-        pill.toggleClass('is-missing', !resolved);
+        pill.toggleClass('is-missing', !resolved && !item.nestedBoardRoomId);
         pill.createSpan({ text: boardName });
         pill.setAttribute('aria-label', `Open nested board "${boardName}"`);
         pill.addEventListener('click', (e) => {
           e.stopPropagation();
-          this.openNestedBoard(item.nestedBoardPath!, (p) => { item.nestedBoardPath = p; });
+          this.openNestedBoard(item.nestedBoardPath!, (p) => { item.nestedBoardPath = p; }, item.nestedBoardRoomId, (id) => { item.nestedBoardRoomId = id; });
         });
       }
       if (item.linkedNotePath) {
@@ -1081,19 +1081,19 @@ export const cardsKanbanMethods = {
       }));
       if (item.nestedBoardPath) {
         menu.addItem(i => i.setTitle('Open nested board').setIcon('layout-template').onClick(() => {
-          this.openNestedBoard(item.nestedBoardPath!, (p) => { item.nestedBoardPath = p; });
+          this.openNestedBoard(item.nestedBoardPath!, (p) => { item.nestedBoardPath = p; }, item.nestedBoardRoomId, (id) => { item.nestedBoardRoomId = id; });
         }));
         menu.addItem(i => i.setTitle('Unlink nested board').setIcon('unlink').onClick(() => {
           this.pushUndo();
-          item.nestedBoardPath = undefined; item.nestedBoardIcon = undefined;
+          item.nestedBoardPath = undefined; item.nestedBoardIcon = undefined; item.nestedBoardRoomId = undefined;
           owner.rebuild(); this.scheduleSave();
         }));
       } else {
         menu.addItem(i => i.setTitle('Create nested board…').setIcon('layout-template').onClick(() => {
           const defaultName = item.text.split('\n')[0].replace(/[*_#`[\]]/g, '').trim().slice(0, 60);
-          this.createNestedBoardFrom(defaultName, (path, icon) => {
+          this.createNestedBoardFrom(defaultName, (path, icon, roomId) => {
             this.pushUndo();
-            item.nestedBoardPath = path; item.nestedBoardIcon = icon;
+            item.nestedBoardPath = path; item.nestedBoardIcon = icon; item.nestedBoardRoomId = roomId;
             owner.rebuild();
           });
         }));

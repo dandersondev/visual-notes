@@ -10,6 +10,63 @@ A place to think in space rather than in a list, the way you would in Milanote, 
 
 ---
 
+## Storyboards
+
+Plan a scene shot by shot without leaving your vault — draw the frames, time the sequence, play it back, and export a shot list your collaborators can read.
+
+<!-- SCREENSHOT: assets/storyboard-editor.png — the focused editor, ideally the Screenwriting
+     template's rooftop scene: scene sections left, a drawn-on shot in the middle, inspector
+     right, filmstrip along the bottom. Landscape, ~1600px wide. Add the file, then uncomment:
+![The Storyboard editor](assets/storyboard-editor.png)
+-->
+
+A Storyboard is one canvas card containing an entire visual sequence, so planning a scene does not add dozens of specialist cards to the main board. Add one from the toolbar's **···** menu, the `/` quick-add palette, or the canvas right-click menu, then use its expand button or double-click its preview to enter the focused editor.
+
+- Organise the overall scene into **scene sections**, with a draggable **shot** filmstrip along the bottom
+- Add, duplicate, delete and reorder shots, or move a shot to another scene section; set each shot's number, title, duration and notes
+- Frame shots as **16:9, 4:3, 1:1 or 9:16**, and add a background image from the vault
+- **Import an image folder** to create one named shot per image in a single action
+- Draw directly on a shot with pressure-aware Pen, Marker, Highlighter and textured Pencil presets; adjust size, colour, opacity and smoothing, or disable variable pressure for a uniform line
+- Toggle **onion skinning** to ghost the previous shot beneath the current frame while drawing
+- Select annotations to move, resize, reshape, recolour, copy between shots or delete with Delete/Backspace; selected arrows have endpoint and bend handles using the same trimmed curve geometry as canvas connections
+- Edit selected text in the inspector's Text field; newly placed text focuses that field automatically
+- Storyboard-local **Undo/Redo** treats a complete draw or drag gesture as one action (`⌘/Ctrl Z`, `⌘/Ctrl Shift Z`, or `⌘/Ctrl Y`)
+- See the running shot count and sequence duration, and **play the sequence** using each shot's timing — in the editor, or directly inside the canvas card
+- **Export** a Markdown shot list or the whole Storyboard as a PNG contact sheet. On desktop both download; on iPhone and iPad they are written to an `_Exports` folder in your vault, with a message giving the exact path
+- Switch the card's normal canvas preview between a horizontal filmstrip and a grid, and cycle its shot previews through Small, Medium and Large; shot notes appear beneath their frames as readable descriptions without opening the editor
+- Open the bundled **Screenwriting** template for a working four-shot example
+
+<!-- SCREENSHOT: assets/storyboard-card.png — the card as it sits on a board, filmstrip preview,
+     beside a few ordinary cards so the scale reads. Add the file, then uncomment:
+![A Storyboard on a board](assets/storyboard-card.png)
+-->
+
+The Storyboard remains one normal, movable and resizable JSON Canvas node. Obsidian's native Canvas shows a readable Markdown shot list, while Visual Notes stores the full scene sections, shots, annotations and shot-relative ink in the node's `vn` metadata.
+
+---
+
+## Experimental collaboration
+
+Visual Notes can share a freeform board live over a private network. One desktop participant hosts the room from Obsidian; other desktop, phone, or tablet installations join with an invitation. Cards, connections, drawings, nested boards, cursors, selections, images, and supported video files update across the room while every participant keeps an ordinary local `.canvas` file in their own vault.
+
+This is an opt-in experimental feature. It is intended for trusted collaborators using the same Visual Notes version. The host must keep Obsidian running and the computer awake. Mobile devices can join rooms but cannot host them.
+
+**Collaboration needs Obsidian 1.11.4 or newer**, which is the version that added the secure storage Visual Notes keeps the server secret in. Every other feature works on Obsidian 1.7.2 and up as it always has — on an older Obsidian the collaboration setting simply says it is unavailable, and the rest of the plugin, including future updates, is unaffected.
+
+### Network and privacy disclosure
+
+- Visual Notes does **not** operate a collaboration cloud, create user accounts, collect telemetry, or receive room data.
+- Participants provide their own private connection: a trusted physical LAN or a virtual/private network such as Tailscale, ZeroTier, WireGuard, or Headscale. Visual Notes is not affiliated with those providers.
+- Private-network rooms use `ws://` inside that private connection. Do not expose the collaboration port directly to the public internet. Use an encrypted virtual network when collaborating across the internet.
+- The host stores the canonical room snapshots and transferred media beneath `.obsidian/visual-notes-collaboration` in the host vault. Other participants store their normal local Canvas and any downloaded vault assets in their own vaults.
+- The server secret is stored through Obsidian SecretStorage, not in the plugin's `data.json` or a board. A complete invitation contains the private server address, server credential, and room invitation; treat it like a password and share it only with people you trust.
+- Room membership has owner, editor, and viewer roles. Owners can rotate invitations, remove members, export room metadata, clean expired shared media, or delete the hosted room tree without deleting anyone's local Canvas files.
+- Keep backups of important vaults. Experimental collaboration is not a backup service, and a sleeping host, network interruption, firewall rule, or removed virtual-network membership can make a room temporarily unavailable.
+
+Enable it under **Settings → Visual Notes → Experimental collaboration**, choose the private network interface on the host, select **Start hosting**, create a room from the collaboration bar, and share the copied invitation. Joining devices paste that invitation into **Join room**.
+
+---
+
 ## Features
 
 ### Grid Mode
@@ -38,24 +95,6 @@ A place to think in space rather than in a list, the way you would in Milanote, 
 - **Board-level search** and a **tag/type filter** panel to narrow a busy board down
 - **Archive** cards you're not using instead of deleting them, and browse/restore from the archive any time
 - Drag notes, canvases, and folders straight from the file explorer onto the canvas to create tiles — dragging another Visual Notes file in creates a nested board, exactly like nesting boards in Milanote
-
-### Storyboards
-A Storyboard is one canvas card containing an entire visual sequence, so planning a scene does not add dozens of specialist cards to the main board. Add one from the toolbar's **···** menu, the `/` quick-add palette, or the canvas right-click menu, then use its expand button or double-click its preview to enter the focused editor.
-
-- Organise the overall scene into **scene sections**, with a draggable **shot** filmstrip along the bottom
-- Add, duplicate, delete and reorder shots, or move a shot to another scene section; set each shot's number, title, duration and notes
-- Frame shots as **16:9, 4:3, 1:1 or 9:16**, and add a background image from the vault
-- **Import an image folder** to create one named shot per image in a single action
-- Draw directly on a shot with pressure-aware Pen, Marker, Highlighter and textured Pencil presets; adjust size, colour, opacity and smoothing, or disable variable pressure for a uniform line
-- Toggle **onion skinning** to ghost the previous shot beneath the current frame while drawing
-- Select annotations to move, resize, reshape, recolour, copy between shots or delete with Delete/Backspace; selected arrows have endpoint and bend handles using the same trimmed curve geometry as canvas connections
-- Edit selected text in the inspector's Text field; newly placed text focuses that field automatically
-- Storyboard-local **Undo/Redo** treats a complete draw or drag gesture as one action (`⌘/Ctrl Z`, `⌘/Ctrl Shift Z`, or `⌘/Ctrl Y`)
-- See the running shot count and sequence duration, play using each shot's timing in the editor or directly inside the canvas card, export a Markdown shot list, or export the whole Storyboard as a PNG contact sheet
-- Switch the card's normal canvas preview between a horizontal filmstrip and a grid, and cycle its shot previews through Small, Medium and Large; shot notes appear beneath their frames as readable descriptions without opening the editor
-- Open the bundled **Screenwriting** template for a working four-shot example
-
-The Storyboard remains one normal, movable and resizable JSON Canvas node. Obsidian's native Canvas shows a readable Markdown shot list, while Visual Notes stores the full scene sections, shots, annotations and shot-relative ink in the node's `vn` metadata.
 
 ### Locking
 Kanban boards, kanban columns, and generic Columns each have a padlock toggle: a locked container can't have items dragged into or out of it, but its own cards can still be freely dragged and repositioned.
@@ -259,7 +298,7 @@ Visual Notes is built with heavy AI assistance. Most of the code is written by C
 I'm saying so up front because "who actually maintains this, and will it still work in six months" is a fair question to ask of any plugin, and a fairer one when AI is involved. The honest answers:
 
 - **Every release is tested in my own vault** — desktop and iPad — before it goes out.
-- **The test suite runs on every build**: more than 770 tests, including regressions written for specific bugs people reported, each verified by reintroducing the bug and confirming the test catches it.
+- **The test suite runs on every build**: more than 900 tests, including regressions written for specific bugs people reported, each verified by reintroducing the bug and confirming the test catches it.
 - **The [changelog](CHANGELOG.md) records every release and what prompted it.** Most entries started as a user report.
 - **Bugs get fixed.** [Open an issue](https://github.com/dandersondev/visual-notes/issues) and you'll get a reply.
 
