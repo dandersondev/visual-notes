@@ -2,6 +2,14 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.2
+
+No functional changes. This release exists to repair installations left half-updated by the GitHub outage on 17 August 2026, which interrupted downloads while 1.4.1 was being published.
+
+An update downloads three files. If only some of them arrived, Obsidian reads the new `manifest.json` and reports **v1.4.1** while still running the older code — so features added in 1.4.1 appear to be missing, and **the update button does nothing, because Obsidian believes it is already up to date**. Installing this release replaces all three files and puts things right.
+
+To check whether you were affected, open **Settings → Visual Notes**. The first line reads either `Visual Notes v1.4.2`, which means all is well, or *"Update didn't finish"*, which names the two versions that disagree and explains how to fix it by hand if an update still will not complete.
+
 ## 1.4.1
 
 ### Fixed
