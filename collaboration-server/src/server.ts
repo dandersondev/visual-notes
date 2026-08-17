@@ -976,6 +976,11 @@ export interface HostedRoomSummary {
   boardId: string;
   /** What to show a person: the board's name, or a summary of its contents. */
   title: string;
+  /** The board name recorded at creation, absent on older rooms. */
+  label?: string;
+  /** A few card IDs, which are canvas node IDs -- enough to recognise the
+   *  board an older room came from without storing anything new. */
+  cardIds: string[];
   memberNames: string[];
   memberCount: number;
   cardCount: number;
@@ -998,6 +1003,8 @@ export async function listHostedCollaborationRooms(): Promise<HostedRoomSummary[
       roomId: state.roomId,
       boardId: state.boardId,
       title: state.label?.trim() || describeBoard(state.board),
+      ...(state.label?.trim() ? { label: state.label.trim() } : {}),
+      cardIds: state.board.cards.slice(0, 8).map(card => card.id).filter(Boolean),
       memberNames: Object.values(state.memberships ?? {}).map(member => member.displayName).filter(Boolean),
       memberCount: Object.keys(state.memberships ?? {}).length,
       cardCount: state.board.cards.length,

@@ -30,6 +30,7 @@ import { isSafeCollaborationServerUrl, WebSocketCollaborationTransport } from '.
 import {
   cleanupCollaborationRoomAssets, createCollaborationChildRoom, createCollaborationRoom, deleteCollaborationRoom, exportCollaborationRoom,
   getCollaborationRoomStorage, getCollaborationRoomTree, listCollaborationRoomMembers, removeCollaborationRoomMember,
+  findBoardPathForRoom,
   listCollaborationAccountRooms, openCollaborationAccountRoom, openCollaborationChildRoom, resolveCollaborationRoom, rotateCollaborationRoomInvite,
   type CollaborationAccountRoom, type CollaborationAccountRoomOpen, type CollaborationRoomCredentials, type CollaborationRoomMember,
 } from './collaboration-rooms';
@@ -129,10 +130,63 @@ export default class VisualNotesPlugin extends Plugin {
   async stopPrivateNetworkHost(): Promise<void> { await this.collaborationHost?.stop(); }
 
   /** Rooms this device is hosting right now, for recovering access to one. */
-  listHostedRooms(): Promise<HostedRoomSummary[]> {
+  async listHostedRooms(): Promise<HostedRoomSummary[]> {
     const api = this.collaborationHost?.serverApi();
     if (!api) throw new Error('Start hosting to see the rooms stored on this device.');
-    return api.listHostedCollaborationRooms();
+    return this.nameHostedRooms(await api.listHostedCollaborationRooms());
+  }
+
+  /**
+   * Titles every room with the board it came from.
+   *
+   * Rooms created from 1.3.6 onward record that name themselves. Older ones
+   * do not, and were falling back to a summary of their contents, which is
+   * not what anyone calls their board. Two ways back to the real name, both
+   * cheap enough to run when the list is opened:
+   *
+   *  - the board still holding the room's credentials names it directly;
+   *  - failing that, a room's card IDs are the source board's canvas node
+   *    IDs, so the board can be recognised by its contents. That is the case
+   *    that matters, because a room you left is exactly the one whose
+   *    credentials are gone.
+   */
+  private async nameHostedRooms(rooms: HostedRoomSummary[]): Promise<HostedRoomSummary[]> {
+    const vaultName = this.app.vault.getName();
+    const titles = new Map<string, string>();
+    const wanted = new Map<string, HostedRoomSummary>();
+    for (const room of rooms) {
+      if (room.label) continue;
+      const path = findBoardPathForRoom(window.localStorage, vaultName, room.roomId);
+      const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
+      if (file instanceof TFile) titles.set(room.roomId, file.basename);
+      else if (room.cardIds.length > 0) wanted.set(room.roomId, room);
+    }
+    if (wanted.size > 0) await this.matchRoomsToBoards(wanted, titles);
+    return rooms.map(room => {
+      const title = titles.get(room.roomId);
+      return title ? { ...room, title } : room;
+    });
+  }
+
+  /** Finds each room's source board by the canvas node IDs it still holds. */
+  private async matchRoomsToBoards(
+    wanted: Map<string, HostedRoomSummary>, titles: Map<string, string>,
+  ): Promise<void> {
+    for (const file of this.app.vault.getAllLoadedFiles()) {
+      if (wanted.size === 0) break;
+      if (!(file instanceof TFile) || file.extension !== 'canvas') continue;
+      let nodeIds: Set<string>;
+      try {
+        const parsed: unknown = JSON.parse(await this.app.vault.cachedRead(file));
+        const nodes = (parsed as { nodes?: { id?: unknown }[] }).nodes ?? [];
+        nodeIds = new Set(nodes.map(node => node.id).filter((id): id is string => typeof id === 'string'));
+      } catch { continue; }
+      for (const [roomId, room] of wanted) {
+        if (!room.cardIds.some(id => nodeIds.has(id))) continue;
+        titles.set(roomId, file.basename);
+        wanted.delete(roomId);
+      }
+    }
   }
 
   /**

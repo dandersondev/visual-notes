@@ -150,6 +150,11 @@ describe('embedded desktop host runtime', () => {
       expect(byId.get(unnamed.roomId)?.title).not.toContain('private:');
       expect(byId.get(named.roomId)?.memberNames).toEqual(['Alice']);
       expect(byId.get(named.roomId)?.updatedAt).toBeGreaterThan(0);
+      // Card IDs are canvas node IDs, which is how the plugin recognises the
+      // board an older room came from and titles it with that board's name.
+      expect(byId.get(unnamed.roomId)?.cardIds).toEqual(['a']);
+      expect(byId.get(named.roomId)?.label).toBe('Trip planning');
+      expect(byId.get(unnamed.roomId)?.label).toBeUndefined();
 
       // And the recovery itself: a fresh owner token for the same client.
       const claimed = await manager.serverApi()!.claimHostedRoomOwnership(named.roomId, identity);

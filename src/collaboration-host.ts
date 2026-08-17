@@ -27,6 +27,10 @@ export interface HostedRoomSummary {
   boardId: string;
   /** What to show a person: the board's name, or a summary of its contents. */
   title: string;
+  /** The board name recorded at creation, absent on older rooms. */
+  label?: string;
+  /** A few card IDs, which are canvas node IDs. */
+  cardIds: string[];
   memberNames: string[];
   memberCount: number;
   cardCount: number;
