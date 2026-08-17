@@ -117,6 +117,7 @@ export class CollaborationSession {
           }
           this.emitState();
         },
+        onError: message => this.emitError(message),
         onCompatibility: warnings => {
           this.compatibilityWarnings = [...warnings];
           this.emitState();

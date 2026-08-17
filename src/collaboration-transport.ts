@@ -38,6 +38,14 @@ export interface CollaborationTransportHandlers {
   onPresence(collaborators: CollaborationPresence[]): void;
   onSnapshot?(snapshot: CollaborationRoomSnapshot): void;
   onConnectionState?(status: 'connecting' | 'connected' | 'disconnected', reason?: string): void;
+  /**
+   * A server-reported problem on a connection that is still open and joined.
+   * Separate from onConnectionState because reporting one of these as a
+   * disconnection is both untrue and unrecoverable: nothing has closed, so no
+   * `close` event ever arrives and no reconnect is ever scheduled -- the
+   * session simply reads "disconnected" forever while the socket is fine.
+   */
+  onError?(message: string): void;
   onCompatibility?(warnings: string[]): void;
 }
 

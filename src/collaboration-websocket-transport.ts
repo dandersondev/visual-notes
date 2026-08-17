@@ -240,8 +240,18 @@ class ManagedWebSocketConnection implements CollaborationConnection {
         : { accepted: false, error: message.error });
     } else if (message.type === 'error') {
       const error = new Error(`${message.code}: ${message.message}`);
-      if (!this.initialSettled) this.rejectInitial(error);
-      this.handlers.onConnectionState?.('disconnected', error.message);
+      if (!this.initialSettled) {
+        // Before the join completes, an error really is terminal: the server
+        // follows unauthorized/forbidden/incompatible with an explicit close.
+        this.rejectInitial(error);
+        this.handlers.onConnectionState?.('disconnected', error.message);
+        return;
+      }
+      // After joining, the socket is still open and still joined. Saying
+      // "disconnected" here was a lie that also stranded the session: no close
+      // event follows, so scheduleReconnect() never runs and the bar reads
+      // disconnected until the board is reopened. Surface it as what it is.
+      this.handlers.onError?.(error.message);
     }
   }
 

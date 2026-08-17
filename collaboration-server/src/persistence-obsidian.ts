@@ -43,10 +43,14 @@ export class ObsidianRoomDocumentStore<T> implements RoomDocumentStore<T> {
 
   async save(roomId: string, value: T): Promise<void> {
     await this.ready();
-    const target = this.path(roomId);
-    const temporary = `${target}.${randomSuffix()}.tmp`;
-    await storage.write(temporary, JSON.stringify(value));
-    await storage.rename(temporary, target);
+    // Written straight to the target. The Node store's write-temp-then-rename
+    // is safe there because POSIX rename replaces the destination atomically;
+    // Obsidian's adapter.rename refuses to overwrite an existing file, so that
+    // sequence succeeded exactly once -- when the room file did not yet exist
+    // -- and threw on every save afterwards. Every card move persists, so the
+    // first move after a room was created failed, the server reported the
+    // error, and the board went to "disconnected".
+    await storage.write(this.path(roomId), JSON.stringify(value));
   }
 
   async delete(roomId: string): Promise<void> {
@@ -121,11 +125,6 @@ function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
-function randomSuffix(): string {
-  const bytes = new Uint8Array(8);
-  window.crypto.getRandomValues(bytes);
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-}
 
 function missingFile(path: string): Error & { code: string } {
   return Object.assign(new Error(`No such file: ${path}`), { code: 'ENOENT' });

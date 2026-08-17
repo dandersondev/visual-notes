@@ -2,6 +2,14 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.3.5
+
+### Fixed
+- **Hosting a room dropped to "disconnected" as soon as a card was moved.** The room file could only ever be saved once: it was written to a temporary file and then renamed into place, which is safe on a normal filesystem but not through Obsidian, which refuses to rename onto a file that already exists. Since every edit saves the room, the first move after creating a room failed. Rooms are now written directly and keep saving for as long as the room is open.
+- **A problem reported by the room server was shown as a disconnection.** Nothing had actually disconnected, so nothing ever reconnected either, and the board stayed "disconnected" until it was reopened even though the connection was healthy the whole time. Server problems are now reported as what they are, with the actual message, and the session carries on.
+
+> If you hosted a room before this fix, its saved copy stopped updating after the first edit. Everyone's local `.canvas` files are unaffected, but the room's own stored state may be behind — recreating the room is the cleanest way to start from a correct copy.
+
 ## 1.3.4
 
 ### Fixed

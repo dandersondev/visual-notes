@@ -68,6 +68,61 @@ describe('WebSocketCollaborationTransport', () => {
     await result.connection.disconnect();
   });
 
+  // Regression: hosting a room and moving a card showed "disconnected" with no
+  // error. Nothing had disconnected. The server rejects a bad message by
+  // sending {type:'error'} on a socket it deliberately leaves open, and the
+  // client reported every one of those as a disconnection. Because no close
+  // event follows, scheduleReconnect() never ran either, so the session stayed
+  // "disconnected" while the socket was healthy the whole time.
+  it('reports a post-join server error without claiming to be disconnected', async () => {
+    const sockets: FakeSocket[] = [];
+    const handlers: CollaborationTransportHandlers = {
+      onOperation: vi.fn(), onPresence: vi.fn(), onConnectionState: vi.fn(), onError: vi.fn(),
+    };
+    const transport = new WebSocketCollaborationTransport({
+      url: 'ws://localhost:8787', token: 'token', compatibility, socketFactory: () => {
+        const socket = new FakeSocket(); sockets.push(socket); return socket;
+      }, heartbeatMs: 60_000,
+    });
+    const connecting = transport.connect({
+      roomId: 'room', boardId: 'board', initialBoard: board,
+      identity: { clientId: 'client', displayName: 'Alice', color: '#abcdef' },
+    }, handlers);
+    sockets[0].open();
+    sockets[0].receive({ type: 'joined', protocolVersion: 1, snapshot: snapshot() });
+    const result = await connecting;
+    vi.mocked(handlers.onConnectionState!).mockClear();
+
+    sockets[0].receive({ type: 'error', code: 'invalid-message', message: 'Room storage failed.' });
+
+    expect(handlers.onError).toHaveBeenCalledWith('invalid-message: Room storage failed.');
+    expect(handlers.onConnectionState).not.toHaveBeenCalledWith('disconnected', expect.anything());
+    // Still joined, so the next edit still publishes rather than being told
+    // the server is offline.
+    expect(sockets[0].readyState).toBe(1);
+    await result.connection.disconnect();
+  });
+
+  it('still treats an error before joining as fatal', async () => {
+    const sockets: FakeSocket[] = [];
+    const handlers: CollaborationTransportHandlers = {
+      onOperation: vi.fn(), onPresence: vi.fn(), onConnectionState: vi.fn(), onError: vi.fn(),
+    };
+    const transport = new WebSocketCollaborationTransport({
+      url: 'ws://localhost:8787', token: 'token', compatibility, socketFactory: () => {
+        const socket = new FakeSocket(); sockets.push(socket); return socket;
+      }, heartbeatMs: 60_000,
+    });
+    const connecting = transport.connect({
+      roomId: 'room', boardId: 'board', initialBoard: board,
+      identity: { clientId: 'client', displayName: 'Alice', color: '#abcdef' },
+    }, handlers);
+    sockets[0].open();
+    sockets[0].receive({ type: 'error', code: 'unauthorized', message: 'Server access secret is invalid.' });
+    await expect(connecting).rejects.toThrow(/unauthorized/);
+    expect(handlers.onConnectionState).toHaveBeenCalledWith('disconnected', expect.stringContaining('unauthorized'));
+  });
+
   it('reconnects and delivers the new authoritative snapshot', async () => {
     vi.useFakeTimers();
     const sockets: FakeSocket[] = [];

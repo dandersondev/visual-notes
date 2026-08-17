@@ -18,7 +18,14 @@ beforeAll(() => {
     readBinary: path => binary.has(path) ? Promise.resolve(binary.get(path)!) : Promise.reject(missing(path)),
     write: (path, value) => { text.set(path, value); return Promise.resolve(); },
     writeBinary: (path, value) => { binary.set(path, value); return Promise.resolve(); },
+    // Obsidian's adapter refuses to rename onto an existing path, unlike
+    // POSIX rename. The fake used to overwrite silently, which is why a store
+    // that could only ever save once passed its tests: the second save threw
+    // in the real app and not here. Model the real constraint.
     rename: (from, to) => {
+      if (text.has(to) || binary.has(to)) {
+        return Promise.reject(new Error(`File already exists: ${to}`));
+      }
       if (text.has(from)) { text.set(to, text.get(from)!); text.delete(from); }
       else if (binary.has(from)) { binary.set(to, binary.get(from)!); binary.delete(from); }
       else return Promise.reject(missing(from));
