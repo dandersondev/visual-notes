@@ -96,6 +96,7 @@ const EXPORT_EXCLUDED_CLASSES = [
   'visual-notes-drawing-resize-handle',
   'visual-notes-connection-handle',
   'visual-notes-connection-bend-handle',
+  'visual-notes-remote-selection',
 ];
 
 function exportNodeFilter(node: HTMLElement): boolean {
@@ -1137,6 +1138,20 @@ export const overlaysMethods = {
       const width = Math.round(rawW), height = Math.round(rawH);
       const bg = getComputedStyle(this.outer).backgroundColor || '#e6e6e6';
 
+      // Selection is a class on the card element itself rather than a node of
+      // its own, so exportNodeFilter cannot remove it -- and exporting a
+      // selection necessarily means those very cards are selected. Drop the
+      // class for the capture and restore it after, alongside the pictures.
+      // Only card elements are touched: is-selected also marks content inside
+      // a card (checkers squares, colour swatches), which must export as shown.
+      // The marker goes on first, in the same synchronous block as the removal
+      // below, so the browser settles both in one style recalc and the ring's
+      // 120ms fade never starts -- see the rule in styles.css. Removing the
+      // class alone left the rasteriser reading a half-faded ring.
+      this.inner.addClass('visual-notes-exporting');
+      const reselect = [...this.cardEls.values()].filter(el => el.hasClass('is-selected'));
+      for (const el of reselect) el.removeClass('is-selected');
+
       // Remote pictures have to be resolved before the rasteriser sees them,
       // or a single unreachable one rejects the whole export — see
       // inlineRemoteImages for the mechanism. Restored in the finally below,
@@ -1155,6 +1170,8 @@ export const overlaysMethods = {
         });
       } finally {
         restoreImages();
+        for (const el of reselect) el.addClass('is-selected');
+        this.inner.removeClass('visual-notes-exporting');
       }
 
       const base = `${this.file.basename || 'Board'}${only ? ' selection' : ''}`;

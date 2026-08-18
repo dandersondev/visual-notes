@@ -244,9 +244,15 @@ export class CollaborationSession {
     if (!result.accepted) {
       this.pending.push(operation);
       this.emitError(`Operation ${operation.operationId} was not accepted: ${result.error ?? 'unknown error'}`);
-    } else if (result.sequence !== undefined) {
-      this.lastSequence = Math.max(this.lastSequence, result.sequence);
     }
+    // The acknowledgement also carries this operation's room sequence, but
+    // that number counts every member's operations, not just ours. Adopting
+    // it here skips over any peer operation still in flight, and
+    // receiveOperation silently drops anything at or below lastSequence -- so
+    // the raced edit is lost for good. lastSequence is a contiguous delivery
+    // watermark and only drainIncoming may advance it; our own operation
+    // comes back through the ordinary broadcast, where seenOperationIds
+    // keeps re-application idempotent.
   }
 
   private emitState(): void {

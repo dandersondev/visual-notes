@@ -222,4 +222,66 @@ describe('loopback collaboration sessions', () => {
     expect(text(current.getState(), 'b')).toBe('second');
     expect(current.getState().lastSequence).toBe(2);
   });
+
+  it('applies a peer edit that was still in flight when the local edit was acknowledged', async () => {
+    // A real socket acknowledges a publish before a peer's broadcast arrives.
+    // LoopbackCollaborationTransport delivers both synchronously inside
+    // publish(), so only a transport that holds messages in flight can put the
+    // acknowledgement ahead of the peer operation it raced.
+    class InFlightRoom implements CollaborationTransport {
+      private readonly members: CollaborationTransportHandlers[] = [];
+      private readonly inFlight: { handlers: CollaborationTransportHandlers; message: SequencedBoardOperation }[] = [];
+      private sequence = 0;
+
+      connect(
+        request: CollaborationConnectRequest,
+        handlers: CollaborationTransportHandlers,
+      ): Promise<CollaborationConnectResult> {
+        this.members.push(handlers);
+        return Promise.resolve({
+          connection: {
+            roomId: request.roomId,
+            clientId: request.identity.clientId,
+            publish: (operation) => {
+              const message = { sequence: ++this.sequence, operation: structuredClone(operation) };
+              for (const member of this.members) this.inFlight.push({ handlers: member, message: structuredClone(message) });
+              return Promise.resolve({ accepted: true, sequence: message.sequence });
+            },
+            updatePresence: () => Promise.resolve(),
+            disconnect: () => Promise.resolve(),
+          },
+          snapshot: {
+            roomId: request.roomId, boardId: request.boardId, board: board(),
+            sequence: 0, maxLogicalClock: 0, collaborators: [],
+          },
+        });
+      }
+
+      deliverAll(): void {
+        for (const item of this.inFlight.splice(0, this.inFlight.length)) item.handlers.onOperation(item.message);
+      }
+    }
+
+    const transport = new InFlightRoom();
+    const peer = (who: CollaborationIdentity): CollaborationSession => {
+      let count = 0;
+      return new CollaborationSession({
+        roomId: 'race', boardId: 'board-1', identity: who, initialBoard: board(), transport,
+        createOperationId: () => `${who.clientId}-${++count}`,
+      });
+    };
+    const a = peer(alice);
+    const b = peer(bob);
+    await a.connect();
+    await b.connect();
+
+    await a.submit({ kind: 'set', path: ['cards', { id: 'a' }, 'text'], value: 'Alice edit' });
+    await b.submit({ kind: 'set', path: ['cards', { id: 'b' }, 'text'], value: 'Bob edit' });
+    transport.deliverAll();
+
+    for (const current of [a, b]) {
+      expect(text(current.getState(), 'a')).toBe('Alice edit');
+      expect(text(current.getState(), 'b')).toBe('Bob edit');
+    }
+  });
 });

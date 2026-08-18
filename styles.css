@@ -423,6 +423,16 @@ body.theme-dark {
   box-shadow: 0 0 0 2px var(--interactive-accent), var(--visual-notes-shadow-mid);
 }
 
+/* An export removes .is-selected from the cards so the selection ring is not
+   captured, but the ring fades out over 120ms (see the transition above) and
+   the rasteriser reads computed styles while that fade is still running --
+   baking in a half-faded ring. Suppressing the transition makes the removal
+   land in the same frame. Descendant selector already outranks the single-
+   class rule above, so no !important (banned by stylesheet-compat.test.ts). */
+.visual-notes-exporting .visual-notes-freeform-card {
+  transition: none;
+}
+
 /* Tile cards keep a lot of blank padding around the icon+label so a ring
    drawn at the full card edge (like every other card kind) reads as loose —
    pull it inward with a negative outline-offset so it hugs the visible

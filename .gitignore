@@ -3,6 +3,7 @@ main.js
 *.js.map
 data.json
 .claude/
+CLAUDE.md
 coverage/
 collaboration-server/dist/
 collaboration-server/.data/

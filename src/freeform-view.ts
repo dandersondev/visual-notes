@@ -224,6 +224,13 @@ export class FreeformRenderer extends Component {
   // Keeps each table's zoom layer laid out at the scroll container's real
   // width while the card is resized (resize doesn't re-render content).
   tableGridResizeObs = new Map<string, ResizeObserver>();
+  // A text card has no stored size -- its w/h are measured back off the DOM
+  // (see syncTextCardSize) purely so connections, the minimap and export have
+  // numbers to read. The measurement taken during render runs before the
+  // browser has laid the card out, so it is skipped and the stale values
+  // survive; this catches the real size the moment it exists, and again if
+  // font loading or a theme change alters it.
+  textCardResizeObs = new Map<string, ResizeObserver>();
   // Every permanent card removal (delete, archive, trash-drop, absorb into a
   // column) must go through here so a table's zoom-layer ResizeObserver is
   // disconnected instead of leaking on the now-detached DOM node forever.
@@ -482,6 +489,8 @@ export class FreeformRenderer extends Component {
     if (this.minimapFilterTimer) { window.clearTimeout(this.minimapFilterTimer); this.minimapFilterTimer = null; }
     for (const ro of this.tableGridResizeObs.values()) ro.disconnect();
     this.tableGridResizeObs.clear();
+    for (const ro of this.textCardResizeObs.values()) ro.disconnect();
+    this.textCardResizeObs.clear();
     this.contextBar?.destroy();
     if (needsFlush) await this.saveNow();
     this.unload();

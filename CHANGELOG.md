@@ -2,6 +2,14 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.3
+
+### Fixed
+- **An edit could vanish for one person while two people were working at the same time.** Every change in a room is numbered, and each participant applies them strictly in order. Sending a change of your own also told you the number the room had given it — but that number counts everybody's changes, not just yours, so accepting it quietly skipped past anything a collaborator had sent moments earlier that was still in transit. The skipped change was then discarded when it did arrive, and never applied. Everything sent afterwards kept flowing normally, which is what made the board look like it was lagging rather than losing work. Your own number is now treated as what it always was — a receipt — and only changes that actually arrive move you forward.
+- **Arrows connected to a text card sat away from it when a board was opened**, and only snapped back once the card was resized. Unlike every other kind, a text card has no size of its own: it is exactly as large as its text, and its measurements are read back off the screen so connections, the minimap and exports have something to work from. That reading was taken before the browser had laid the card out, so it was skipped and stale measurements survived — leaving the arrows anchored to a size the card no longer had. Resizing was the only action that took a fresh measurement, which is why it appeared to be the cure. A text card is now watched for its real size, and its connections are redrawn the moment it settles.
+- **Exporting selected cards as a PNG included the selection highlight.** An export draws the board exactly as it appears on screen, and cards must be selected in order to be chosen for export, so their highlight was captured along with them. The highlight is now lifted for the moment of capture. It fades out rather than switching off, and the first attempt at this caught it mid-fade, so the fade is suspended for the capture too.
+- **A collaborator's selection outline was captured in exports** for the same reason, and is now excluded.
+
 ## 1.4.2
 
 No functional changes. This release exists to repair installations left half-updated by the GitHub outage on 17 August 2026, which interrupted downloads while 1.4.1 was being published.

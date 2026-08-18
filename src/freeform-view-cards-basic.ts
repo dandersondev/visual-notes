@@ -1383,6 +1383,21 @@ export const cardsBasicMethods = {
     else { body.addClass('is-placeholder'); body.setText('Text'); }
     this.appendResizeHandles(el);
     this.syncTextCardSize(el, card);
+
+    // That measurement is skipped whenever the card is not laid out yet, which
+    // on a board open is most of the time -- leaving card.w/h stale and every
+    // connection anchored to a size the card no longer has. Resizing the card
+    // was the only thing that recovered it, because the resize path is the one
+    // caller that follows a sync with a connection redraw. Observe instead, so
+    // the real size is picked up as soon as layout produces it.
+    this.textCardResizeObs.get(card.id)?.disconnect();
+    const ro = new ResizeObserver(() => {
+      const before = `${card.w}x${card.h}`;
+      this.syncTextCardSize(el, card);
+      if (`${card.w}x${card.h}` !== before) this.updateConnectionsForCard(card.id);
+    });
+    ro.observe(el);
+    this.textCardResizeObs.set(card.id, ro);
   },
 
   // A text card's on-screen size comes from CSS (content width at the current
