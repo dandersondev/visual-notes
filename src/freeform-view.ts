@@ -560,6 +560,28 @@ export class FreeformRenderer extends Component {
     return el;
   }
 
+  /**
+   * Re-renders one card in place, leaving the rest of the board untouched.
+   *
+   * The counterpart to rebuildCards() for the case where exactly which cards
+   * changed is known -- a remote collaboration edit. Selection, remote
+   * cursors, other cards' media and the ink layer all survive, because
+   * `inner` is never emptied.
+   */
+  refreshCardEl(id: string): void {
+    const card = this.board.cards.find(c => c.id === id);
+    const el = this.cardEls.get(id);
+    if (!card || !el) return;
+    // The card's own ResizeObservers are about to lose the nodes they watch
+    // (renderCardContent empties the element), so drop them first rather than
+    // leaving them observing detached children.
+    this.disposeCardResources(id);
+    this.positionCardEl(el, card);
+    this.renderCardContent(el, card);
+    el.toggleClass('is-selected', this.selection.has(id));
+    this.updateConnectionsForCard(id);
+  }
+
   positionCardEl(el: HTMLElement, card: Card): void {
     el.style.left   = `${card.x ?? 0}px`;
     el.style.top    = `${card.y ?? 0}px`;

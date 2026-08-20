@@ -1,6 +1,6 @@
 import { screenToCanvas } from './canvas/pan-zoom';
 import { Modal, Notice, Setting } from 'obsidian';
-import { diffBoardOperations } from './collaboration-diff';
+import { cardsTouchedBy, diffBoardOperations } from './collaboration-diff';
 import { CollaborationSession, type CollaborationSessionState } from './collaboration-session';
 import type { VisualNotesFile } from './file-types';
 import type { FreeformRenderer } from './freeform-view';
@@ -189,7 +189,8 @@ export const collaborationMethods = {
     // merged as soon as the local edit is safely represented in the session.
     const localBaseline = this.collaborationLastBoard;
     if (localBaseline && diffBoardOperations(localBaseline, current).length > 0) return;
-    if (diffBoardOperations(current, state.board).length === 0) return;
+    const incoming = diffBoardOperations(current, state.board);
+    if (incoming.length === 0) return;
 
     const baseline = this.board.baseline;
     const viewport = this.board.viewport;
@@ -197,7 +198,19 @@ export const collaborationMethods = {
     this.board.baseline = baseline;
     this.board.viewport = viewport;
     this.collaborationLastBoard = collaborationBoard(this.board);
-    this.rebuildCards();
+
+    // rebuildCards() empties `inner` and recreates every card, connection and
+    // ink stroke -- and clears the selection. Doing that for a change to one
+    // item in one Kanban lane is why remote edits felt slow: the cost is the
+    // whole board's render, not the edit's, and a Kanban card is the most
+    // expensive thing on it. When every operation lands inside a card that
+    // already exists, re-render just those cards instead.
+    const touched = cardsTouchedBy(incoming);
+    if (touched && [...touched].every(id => this.cardEls.has(id))) {
+      for (const id of touched) this.refreshCardEl(id);
+    } else {
+      this.rebuildCards();
+    }
     this.saveQueue.schedule();
     this.renderCollaborationPresence();
   },
@@ -697,13 +710,40 @@ function collaborationBoard(board: VisualNotesFile): VisualNotesFile {
   delete clone.unreadable;
   delete clone.recoveredFromNativeEdit;
   delete clone.viewport;
+  // A text card has no stored size: its w/h are measured back off the DOM on
+  // each peer independently (see syncTextCardSize), so they are display state
+  // rather than board content. Leaving them in makes every relayout -- a font
+  // finishing loading, a theme change, a zoom -- look like an unpublished
+  // local edit, and applyCollaborationState blocks *all* incoming operations
+  // while a local delta exists. Nothing schedules a flush for a measurement,
+  // so the room would stay frozen until the user happened to save. Sharing
+  // them instead is worse: two peers on different fonts would overwrite each
+  // other's measurement forever.
+  for (const card of clone.cards) {
+    if (card.kind === 'text') { delete card.w; delete card.h; }
+  }
   return clone;
 }
 
 function applySerializableBoard(target: VisualNotesFile, source: VisualNotesFile): void {
+  // Text-card measurements are deliberately never shared (see
+  // collaborationBoard), so an incoming snapshot carries none -- keep this
+  // peer's own, or connections would lose their anchor geometry on every
+  // remote edit until the observer re-measured.
+  const localTextSize = new Map<string, { w?: number; h?: number }>();
+  for (const card of target.cards) {
+    if (card.kind === 'text') localTextSize.set(card.id, { w: card.w, h: card.h });
+  }
   target.version = source.version;
   target.layout = source.layout;
   target.cards = structuredClone(source.cards);
+  for (const card of target.cards) {
+    if (card.kind !== 'text') continue;
+    const size = localTextSize.get(card.id);
+    if (!size) continue;
+    if (size.w !== undefined) card.w = size.w;
+    if (size.h !== undefined) card.h = size.h;
+  }
   target.connections = structuredClone(source.connections);
   target.drawings = structuredClone(source.drawings);
   copyOptional(target, source, 'dotsHidden');

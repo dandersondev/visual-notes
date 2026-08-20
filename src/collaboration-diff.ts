@@ -11,6 +11,26 @@ export function diffBoardOperations(before: VisualNotesFile, after: VisualNotesF
   return actions;
 }
 
+/**
+ * The cards an incoming batch of operations mutates, or null when the batch
+ * changes the board's structure and only a full rebuild is correct.
+ *
+ * A path of ['cards', {id}, ...something] is a mutation inside one card that
+ * already exists. Anything shorter is the cards array itself -- a card added,
+ * removed or reordered -- and anything else is a connection, a drawing or a
+ * board-level field, none of which re-rendering a card would draw.
+ */
+export function cardsTouchedBy(actions: BoardOperationAction[]): Set<string> | null {
+  const ids = new Set<string>();
+  for (const action of actions) {
+    if (action.path.length < 3 || action.path[0] !== 'cards') return null;
+    const card = action.path[1];
+    if (typeof card !== 'object') return null;
+    ids.add(card.id);
+  }
+  return ids;
+}
+
 function diffValue(
   before: unknown,
   after: unknown,

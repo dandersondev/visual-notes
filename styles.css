@@ -215,6 +215,39 @@ body.theme-dark {
   user-select: none;
 }
 
+/* Save state, reported in the board header. Hidden by default and revealed
+   per status rather than reserving a fixed slot, so the normal case leaves
+   the header exactly as it was. Opacity rather than display keeps the fade
+   from "Saved" back to nothing smooth, and keeps it out of the layout
+   calculation either way. */
+.visual-notes-save-status {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-faint);
+  user-select: none;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 180ms ease;
+  pointer-events: none;
+}
+
+.visual-notes-save-status.is-visible {
+  opacity: 1;
+}
+
+/* A failed write is the one state the user has to act on, so it is the one
+   state that takes a colour and stays put. */
+.visual-notes-save-status.is-error {
+  color: var(--text-error);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .visual-notes-save-status {
+    transition: none;
+  }
+}
+
 /* ── Grid ───────────────────────────────────────────────────── */
 .visual-notes-grid {
   display: grid;

@@ -76,10 +76,19 @@ export const persistenceMethods = {
   rebuildCards(this: FreeformRenderer): void {
     this.exitConnectMode();
     this.deselectDrawing();
+    // A rebuild is a re-render, not a deselection. Undo and redo come through
+    // here, so undoing an arrow-key nudge used to leave nothing selected --
+    // and no way to nudge again without reaching for the card a second time.
+    const selected = this.selection.getIds();
     this.inner.empty(); this.cardEls.clear(); this.connectionPaths.clear(); this.selection.clear();
     this.inkPaths.clear(); this.inkHitPaths.clear();
     this.initConnectionLayer();
     for (const card of this.board.cards) this.createCardEl(card);
+    // Anything the rebuild did not recreate -- a card an undo removed, or one
+    // a collaborator deleted -- drops out rather than lingering in the
+    // selection as an id with no element behind it.
+    for (const id of selected) if (this.cardEls.has(id)) this.selection.add(id);
+    this.refreshSelectionVisuals();
     this.refreshAllConnections();
     // inner.empty() also tore down the ink SVG layer — rebuild it and
     // re-render from this.board.drawings, which undo/redo snapshots and

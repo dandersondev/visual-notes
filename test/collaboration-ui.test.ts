@@ -24,11 +24,14 @@ function makeRenderer(
   transport: LoopbackCollaborationTransport,
   identity: CollaborationIdentity,
   collaboration?: Partial<FreeformCollaborationConfig>,
+  cards?: VisualNotesFile['cards'],
 ): FreeformRenderer {
   const container = document.body.createDiv();
   const board: VisualNotesFile = {
     version: 3, layout: 'freeform', viewport: { x: 0, y: 0, zoom: 1 },
-    cards: [{ id: 'card', kind: 'sticky', x: 20, y: 20, w: 220, h: 140, text: 'Original', color: '#fff' }],
+    cards: cards
+      ? structuredClone(cards)
+      : [{ id: 'card', kind: 'sticky', x: 20, y: 20, w: 220, h: 140, text: 'Original', color: '#fff' }],
     connections: [], drawings: [],
   };
   const file = { path: 'Shared.canvas', basename: 'Shared', name: 'Shared.canvas', extension: 'canvas' } as never;
@@ -200,5 +203,76 @@ describe('experimental collaboration UI adapter', () => {
     expect(renderer.board.cards[0].x).toBe(20);
     expect(renderer.collaborationSession?.getState().pendingOperations).toBe(0);
     expect(renderer.container.textContent).toContain('viewer');
+  });
+});
+
+describe('remote edits are applied surgically', () => {
+  const twoCards: VisualNotesFile['cards'] = [
+    { id: 'card', kind: 'sticky', x: 20, y: 20, w: 220, h: 140, text: 'Original', color: '#fff' },
+    { id: 'other', kind: 'sticky', x: 300, y: 20, w: 220, h: 140, text: 'Untouched', color: '#fff' },
+  ];
+
+  it('leaves cards the edit did not touch standing, with their selection', async () => {
+    const transport = new LoopbackCollaborationTransport();
+    const a = makeRenderer(transport, alice, undefined, twoCards);
+    const b = makeRenderer(transport, bob, undefined, twoCards);
+    await vi.waitFor(() => expect(a.container.querySelectorAll('.visual-notes-collaboration-avatar')).toHaveLength(2));
+
+    // Bob is working on the other card while Alice edits hers.
+    b.selection.select('other');
+    b.refreshSelectionVisuals();
+    const untouched = b.cardEls.get('other');
+    const edited = b.cardEls.get('card');
+
+    (a.board.cards[0] as StickyCard).text = 'Edited live';
+    await a.flushCollaborationSync();
+
+    expect((b.board.cards[0] as StickyCard).text).toBe('Edited live');
+    expect(b.container.textContent).toContain('Edited live');
+    // A full rebuild empties `inner`, so every element would be a new node and
+    // the selection would be cleared -- which is what made a Kanban edit cost
+    // the whole board's render.
+    expect(b.cardEls.get('other')).toBe(untouched);
+    expect(b.cardEls.get('card')).toBe(edited);
+    expect(b.selection.has('other')).toBe(true);
+  });
+
+  it('still rebuilds when a card is added remotely', async () => {
+    const transport = new LoopbackCollaborationTransport();
+    const a = makeRenderer(transport, alice, undefined, twoCards);
+    const b = makeRenderer(transport, bob, undefined, twoCards);
+    await vi.waitFor(() => expect(a.container.querySelectorAll('.visual-notes-collaboration-avatar')).toHaveLength(2));
+
+    a.board.cards.push({ id: 'fresh', kind: 'sticky', x: 600, y: 20, w: 220, h: 140, text: 'Brand new', color: '#fff' });
+    await a.flushCollaborationSync();
+
+    expect(b.cardEls.has('fresh')).toBe(true);
+    expect(b.container.textContent).toContain('Brand new');
+  });
+
+  it('keeps applying remote edits after a text card measures itself', async () => {
+    const transport = new LoopbackCollaborationTransport();
+    const withText: VisualNotesFile['cards'] = [
+      ...twoCards,
+      { id: 'text', kind: 'text', x: 600, y: 20, text: 'Heading', fontSize: 24 },
+    ];
+    const a = makeRenderer(transport, alice, undefined, withText);
+    const b = makeRenderer(transport, bob, undefined, withText);
+    await vi.waitFor(() => expect(a.container.querySelectorAll('.visual-notes-collaboration-avatar')).toHaveLength(2));
+
+    // jsdom has no layout, so syncTextCardSize never writes -- stand in for the
+    // measurement a real browser's ResizeObserver performs once the card is
+    // laid out. It is local, derived, and nothing schedules a sync for it.
+    const local = b.board.cards.find(card => card.id === 'text')!;
+    local.w = 321;
+    local.h = 89;
+
+    (a.board.cards[0] as StickyCard).text = 'Edited live';
+    await a.flushCollaborationSync();
+
+    // The measurement must not read as an unpublished local edit: that used to
+    // block every incoming operation until something else happened to save.
+    expect((b.board.cards[0] as StickyCard).text).toBe('Edited live');
+    expect(b.board.cards.find(card => card.id === 'text')!.w).toBe(321);
   });
 });

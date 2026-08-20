@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffBoardOperations } from '../src/collaboration-diff';
+import { cardsTouchedBy, diffBoardOperations } from '../src/collaboration-diff';
 import { applyBoardOperation, createBoardOperation } from '../src/collaboration-operations';
 import type { CollaborationIdentity } from '../src/collaboration-identity';
 import type { StoryboardCard, StickyCard, VisualNotesFile } from '../src/file-types';
@@ -92,5 +92,40 @@ describe('diffBoardOperations', () => {
       value: 'New',
     });
     expect(applyDiff(before, after)).toEqual(after);
+  });
+});
+
+describe('cardsTouchedBy', () => {
+  it('names the cards a batch of in-card mutations changes', () => {
+    expect(cardsTouchedBy([
+      { kind: 'set', path: ['cards', { id: 'kb' }, 'columns', { id: 'c0' }, 'items', { id: 'i3' }, 'text'], value: 'hi' },
+      { kind: 'delete', path: ['cards', { id: 'kb' }, 'columns', { id: 'c0' }, 'items', { id: 'i4' }] },
+      { kind: 'set', path: ['cards', { id: 'note' }, 'text'], value: 'hello' },
+    ])).toEqual(new Set(['kb', 'note']));
+  });
+
+  it('refuses a batch that adds, removes or reorders a card', () => {
+    // A card inserted into the board -- there is no element to re-render.
+    expect(cardsTouchedBy([
+      { kind: 'insert', path: ['cards'], value: { id: 'new', kind: 'sticky' } },
+    ])).toBeNull();
+    // A card removed outright.
+    expect(cardsTouchedBy([{ kind: 'delete', path: ['cards', { id: 'gone' }] }])).toBeNull();
+    // A card reordered, which changes z-order across the board.
+    expect(cardsTouchedBy([{ kind: 'move', path: ['cards'], id: 'kb', afterId: 'note' }])).toBeNull();
+  });
+
+  it('refuses anything outside the cards array', () => {
+    expect(cardsTouchedBy([
+      { kind: 'set', path: ['connections', { id: 'x' }, 'thickness'], value: 3 },
+    ])).toBeNull();
+    expect(cardsTouchedBy([{ kind: 'set', path: ['layout'], value: 'grid' }])).toBeNull();
+  });
+
+  it('refuses a mixed batch if any single action is structural', () => {
+    expect(cardsTouchedBy([
+      { kind: 'set', path: ['cards', { id: 'kb' }, 'title'], value: 'Sprint' },
+      { kind: 'insert', path: ['cards'], value: { id: 'new', kind: 'sticky' } },
+    ])).toBeNull();
   });
 });

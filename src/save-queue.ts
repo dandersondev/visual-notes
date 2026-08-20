@@ -17,10 +17,22 @@
 //     silently dropped — a fresh debounced attempt is scheduled so that
 //     state still eventually gets written instead of only surviving in
 //     memory until the next unrelated edit happens to trigger a save.
+/**
+ * What the queue is doing, for the board to report to the user.
+ *
+ * `scheduled` is a debounced write that has not started; `saved` means the
+ * last write completed; `error` means the last one rejected and is left
+ * standing even when a retry is queued behind it, because "the last attempt
+ * failed" is the honest thing to show until one actually succeeds.
+ */
+export type SaveStatus = 'idle' | 'scheduled' | 'saving' | 'saved' | 'error';
+
 export class SaveQueue {
   private timer: number | null = null;
   private inFlight: Promise<void> | null = null;
   private pending = false;
+  private status: SaveStatus = 'idle';
+  private readonly statusListeners = new Set<(status: SaveStatus) => void>();
 
   constructor(
     private readonly write: () => Promise<void>,
@@ -33,8 +45,25 @@ export class SaveQueue {
     return this.timer !== null || this.inFlight !== null;
   }
 
+  get saveStatus(): SaveStatus {
+    return this.status;
+  }
+
+  /** Notifies on every change of status. Returns an unsubscribe function. */
+  onStatusChange(listener: (status: SaveStatus) => void): () => void {
+    this.statusListeners.add(listener);
+    return () => this.statusListeners.delete(listener);
+  }
+
+  private setStatus(next: SaveStatus): void {
+    if (this.status === next) return;
+    this.status = next;
+    for (const listener of this.statusListeners) listener(next);
+  }
+
   schedule(): void {
     if (this.timer !== null) window.clearTimeout(this.timer);
+    this.setStatus('scheduled');
     this.timer = window.setTimeout(() => {
       this.timer = null;
       void this.flush();
@@ -62,6 +91,7 @@ export class SaveQueue {
     }
 
     const run = async (): Promise<void> => {
+      this.setStatus('saving');
       do {
         this.pending = false;
         try {
@@ -72,9 +102,13 @@ export class SaveQueue {
           // give it a fresh debounced attempt rather than looping
           // synchronously (which would hammer a persistent failure).
           if (this.pending) { this.pending = false; this.schedule(); }
+          // After the retry is queued, so the failure is what the board shows
+          // until a write actually succeeds.
+          this.setStatus('error');
           return;
         }
       } while (this.pending);
+      this.setStatus('saved');
     };
     const inFlight = run();
     this.inFlight = inFlight;

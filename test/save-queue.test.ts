@@ -220,3 +220,80 @@ describe('SaveQueue: write failures', () => {
     expect(q.hasPendingWork).toBe(false);
   });
 });
+
+describe('SaveQueue status', () => {
+  it('starts idle and reports the whole life of a debounced write', async () => {
+    const seen: string[] = [];
+    const queue = new SaveQueue(async () => {}, () => {}, 600);
+    queue.onStatusChange(status => seen.push(status));
+    expect(queue.saveStatus).toBe('idle');
+
+    queue.schedule();
+    expect(queue.saveStatus).toBe('scheduled');
+
+    await vi.advanceTimersByTimeAsync(600);
+    expect(seen).toEqual(['scheduled', 'saving', 'saved']);
+    expect(queue.saveStatus).toBe('saved');
+  });
+
+  it('reports a failed write as error and keeps it until one succeeds', async () => {
+    let fail = true;
+    const queue = new SaveQueue(
+      async () => { if (fail) throw new Error('disk full'); },
+      () => {},
+      600,
+    );
+    queue.schedule();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(queue.saveStatus).toBe('error');
+
+    fail = false;
+    queue.schedule();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(queue.saveStatus).toBe('saved');
+  });
+
+  it('leaves the failure showing while a retry is queued behind it', async () => {
+    let release = (): void => {};
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const queue = new SaveQueue(
+      async () => { await gate; throw new Error('nope'); },
+      () => {},
+      600,
+    );
+    queue.schedule();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(queue.saveStatus).toBe('saving');
+
+    // An edit arrives mid-write, so a retry is scheduled when this one fails.
+    void queue.flush();
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // schedule() runs for the retry, but 'error' is what the board shows --
+    // reporting 'scheduled' would hide that the last attempt actually failed.
+    expect(queue.saveStatus).toBe('error');
+  });
+
+  it('does not re-notify when the status has not changed', async () => {
+    const seen: string[] = [];
+    const queue = new SaveQueue(async () => {}, () => {}, 600);
+    queue.onStatusChange(status => seen.push(status));
+    queue.schedule();
+    queue.schedule();
+    queue.schedule();
+    expect(seen).toEqual(['scheduled']);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(seen).toEqual(['scheduled', 'saving', 'saved']);
+  });
+
+  it('stops notifying after unsubscribe', async () => {
+    const seen: string[] = [];
+    const queue = new SaveQueue(async () => {}, () => {}, 600);
+    const off = queue.onStatusChange(status => seen.push(status));
+    queue.schedule();
+    off();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(seen).toEqual(['scheduled']);
+  });
+});

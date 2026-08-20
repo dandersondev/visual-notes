@@ -5,6 +5,7 @@ import { readBoardFile, writeBoardFile, classifyCanvasFile, NATIVE_BAK_SUFFIX } 
 import { GridRenderer } from './grid-view';
 import { FreeformRenderer } from './freeform-view';
 import type { FreeformCollaborationConfig } from './freeform-view';
+import type { SaveStatus } from './save-queue';
 import { DEFAULT_PEN_DRAW_OPTIONS } from './pen-options-panel';
 import { ensureCollaborationIdentity } from './collaboration-identity';
 import { relinkBoardData } from './asset-manager';
@@ -27,6 +28,12 @@ export class VisualNotesView extends FileView {
   private isInternalNavigation = false;
 
   private renderer: GridRenderer | FreeformRenderer | null = null;
+
+  // Header save indicator — element, its subscription to the board's write
+  // queue, and the timer that fades "Saved" back out.
+  private saveStatusEl: HTMLElement | null = null;
+  private saveStatusUnsubscribe: (() => void) | null = null;
+  private saveStatusFadeTimer: number | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: VisualNotesPlugin) {
     super(leaf);
@@ -346,6 +353,15 @@ export class VisualNotesView extends FileView {
     }
 
     this.renderer.render();
+
+    // Only the freeform renderer owns a write queue; a grid board simply
+    // leaves the indicator empty rather than claiming a state it has no
+    // knowledge of.
+    if (this.renderer instanceof FreeformRenderer) {
+      const queue = this.renderer.saveQueue;
+      this.saveStatusUnsubscribe = queue.onStatusChange(status => this.showSaveStatus(status));
+      this.showSaveStatus(queue.saveStatus);
+    }
   }
 
   private renderHeader(container: HTMLElement, file: TFile, layout: VisualNotesFile['layout']): void {
@@ -391,6 +407,39 @@ export class VisualNotesView extends FileView {
       text: layout === 'freeform' ? 'Canvas' : 'Tile grid',
       cls: 'visual-notes-layout-badge',
     });
+
+    // Save state. Starts empty: the board's write protection has always been
+    // real, it just had no way to say so, and "did that save?" is not a
+    // question anyone should have to guess at.
+    this.saveStatusEl = header.createSpan('visual-notes-save-status');
+  }
+
+  /**
+   * Reports what the board's write queue is doing.
+   *
+   * Deliberately silent while a write is merely debounced -- that fires on
+   * every keystroke, and a caption blinking on each one is noise rather than
+   * reassurance. "Saved" fades out shortly after, so the header is not
+   * permanently occupied by the normal case; a failure stays put, because
+   * that one the user needs to act on.
+   */
+  private showSaveStatus(status: SaveStatus): void {
+    const el = this.saveStatusEl;
+    if (!el) return;
+    if (this.saveStatusFadeTimer !== null) {
+      window.clearTimeout(this.saveStatusFadeTimer);
+      this.saveStatusFadeTimer = null;
+    }
+    const label = status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : status === 'error' ? "Couldn't save" : '';
+    el.setText(label);
+    el.toggleClass('is-visible', label !== '');
+    el.toggleClass('is-error', status === 'error');
+    if (status === 'saved') {
+      this.saveStatusFadeTimer = window.setTimeout(() => {
+        this.saveStatusFadeTimer = null;
+        el.removeClass('is-visible');
+      }, 1800);
+    }
   }
 
   private renderEmpty(): void {
@@ -421,6 +470,13 @@ export class VisualNotesView extends FileView {
   }
 
   private async destroyRenderer(): Promise<void> {
+    this.saveStatusUnsubscribe?.();
+    this.saveStatusUnsubscribe = null;
+    if (this.saveStatusFadeTimer !== null) {
+      window.clearTimeout(this.saveStatusFadeTimer);
+      this.saveStatusFadeTimer = null;
+    }
+    this.saveStatusEl = null;
     await this.renderer?.destroy();
     this.renderer = null;
   }

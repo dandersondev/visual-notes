@@ -2,6 +2,16 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.4
+
+### Added
+- **A board now says whether it has saved.** The header reports *Saving…* while a write is in flight and *Saved* when it lands, fading out a moment later so it does not permanently occupy the header. A write that fails says *Couldn't save* and stays put, because that is the one case worth acting on. Nothing is shown while an edit is still settling — that happens on every keystroke, and a caption blinking on each one would be noise rather than reassurance. The protection behind all this is not new; it simply had no way to tell you it was working.
+
+### Fixed
+- **Boards stopped receiving a collaborator's edits until you touched the board yourself.** A text card is sized by its content rather than by stored dimensions, so its measurements are taken from the screen — and those measurements were being treated as an unpublished edit of your own. A board holds incoming changes back while you have unpublished work, on the assumption it is about to be sent, but nothing sends a measurement, so the board waited indefinitely. Clicking or dragging anything released the backlog, which is why it looked like updates only arrived when you interacted. Measurements are now recognised as what they are — a local detail of how the card is drawn on your screen — and never hold anything up. Introduced in 1.4.3.
+- **Kanban boards were slow to show a collaborator's changes.** Every incoming change redrew the entire board — all cards, connections and drawings — no matter how small the change or which card it touched. A Kanban board is the most detailed card there is, so it dominated that work, and moving a single item redrew everything twice. Only the cards an edit actually touches are redrawn now; adding, removing or reordering cards still redraws in full, since that genuinely changes the whole board. Your images and videos no longer reload, and your remote collaborators' cursors no longer flicker, each time someone else makes an edit.
+- **Undo and redo cleared your selection.** Nudging a card with the arrow keys and then undoing left nothing selected, so the card had to be picked up again before it could be nudged a second time. A selection now survives undo, redo and any other redraw; only cards that genuinely went away — removed by the undo, or deleted by a collaborator — leave it.
+
 ## 1.4.3
 
 ### Fixed
