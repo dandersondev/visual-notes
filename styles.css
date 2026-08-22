@@ -8266,6 +8266,21 @@ button.visual-notes-collaboration-colour-swatch.is-selected {
 }
 
 .visual-notes-collaboration-status { gap: 5px; }
+
+/* Why a room could not be reached. Sits under the status line rather than in
+   a Notice alone, because the Notice is gone in ten seconds and the condition
+   it describes -- host asleep, invite revoked, wrong network -- is usually
+   still true afterwards. Wraps rather than truncating: the message names the
+   address it tried, which is the part worth reading. */
+.visual-notes-collaboration-reason {
+  max-width: 260px;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-error);
+  white-space: normal;
+}
+
 .visual-notes-collaboration-avatars { padding-left: 2px; }
 
 .visual-notes-collaboration-transfer {

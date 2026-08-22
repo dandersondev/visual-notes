@@ -178,6 +178,13 @@ if (!(globalThis as any).ResizeObserver) {
   };
 }
 
+// jsdom has no layout, so it implements no scrolling either. Card renderers
+// call this to bring something newly created into view; a no-op is faithful
+// enough, since there is nothing to scroll.
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = function scrollIntoView(): void {};
+}
+
 // Obsidian's cross-window-capable aliases for document/window (support for
 // popped-out panes) — plain document/window is a faithful enough stand-in.
 if (!(globalThis as any).activeDocument) (globalThis as any).activeDocument = document;

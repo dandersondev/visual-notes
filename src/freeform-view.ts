@@ -310,6 +310,10 @@ export class FreeformRenderer extends Component {
   collaborationSession: CollaborationSession | null = null;
   collaborationState: CollaborationSessionState | null = null;
   collaborationUnsubscribe: (() => void) | null = null;
+  // Why the room is unreachable, kept so the board can say so rather than
+  // showing a bare "disconnected". Cleared the moment a connection succeeds.
+  collaborationErrorUnsubscribe: (() => void) | null = null;
+  collaborationErrorMessage: string | null = null;
   collaborationAssetUnsubscribe: (() => void) | null = null;
   collaborationSyncTimer: number | null = null;
   collaborationLastBoard: VisualNotesFile | null = null;

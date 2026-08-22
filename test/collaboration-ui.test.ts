@@ -276,3 +276,34 @@ describe('remote edits are applied surgically', () => {
     expect(b.board.cards.find(card => card.id === 'text')!.w).toBe(321);
   });
 });
+
+describe('a room that cannot be reached says why', () => {
+  it('shows the session\'s reason instead of a bare status word', async () => {
+    const transport = new LoopbackCollaborationTransport();
+    const renderer = makeRenderer(transport, alice);
+    await vi.waitFor(() => expect(renderer.collaborationSession?.getState().status).toBe('connected'));
+
+    // What the websocket transport raises when a host refuses the connection.
+    renderer.collaborationSession!.emitErrorForTest(
+      'Could not reach the collaboration host at 100.64.0.1:3030. '
+      + 'Check that the host has Obsidian open and hosting started, and that both devices are on the same private network.',
+    );
+    renderer.applyCollaborationState({ ...renderer.collaborationSession!.getState(), status: 'disconnected' });
+
+    const reason = renderer.container.querySelector('.visual-notes-collaboration-reason');
+    expect(reason?.textContent).toContain('Could not reach the collaboration host at 100.64.0.1:3030');
+  });
+
+  it('retires the reason once the room reconnects', async () => {
+    const transport = new LoopbackCollaborationTransport();
+    const renderer = makeRenderer(transport, alice);
+    await vi.waitFor(() => expect(renderer.collaborationSession?.getState().status).toBe('connected'));
+
+    renderer.collaborationSession!.emitErrorForTest('Lost the connection to the collaboration host.');
+    renderer.applyCollaborationState({ ...renderer.collaborationSession!.getState(), status: 'disconnected' });
+    expect(renderer.container.querySelector('.visual-notes-collaboration-reason')).toBeTruthy();
+
+    renderer.applyCollaborationState({ ...renderer.collaborationSession!.getState(), status: 'connected' });
+    expect(renderer.container.querySelector('.visual-notes-collaboration-reason')).toBeNull();
+  });
+});

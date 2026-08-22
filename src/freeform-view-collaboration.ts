@@ -51,6 +51,18 @@ export const collaborationMethods = {
     });
     this.collaborationSession = session;
     this.collaborationUnsubscribe = session.onStateChange(state => this.applyCollaborationState(state));
+    // The session has always reported *why* a room could not be reached --
+    // the host being asleep, an invite that was revoked, a schema the room
+    // does not accept -- but nothing subscribed, so every one of those
+    // messages was raised into an empty listener set and the board showed a
+    // bare "disconnected" instead. Surface it: a failure the user is expected
+    // to act on has to say what happened.
+    this.collaborationErrorUnsubscribe = session.onError(message => {
+      if (this.collaborationErrorMessage === message) return;
+      this.collaborationErrorMessage = message;
+      new Notice(message, 10_000);
+      this.renderCollaborationPresence();
+    });
     if (!this.collaborationAssetUnsubscribe && this.collaborationConfig.assetClient) {
       this.collaborationAssetUnsubscribe = this.collaborationConfig.assetClient.subscribeTransfers(() => this.renderCollaborationPresence());
     }
@@ -100,6 +112,9 @@ export const collaborationMethods = {
     }
     this.collaborationUnsubscribe?.();
     this.collaborationUnsubscribe = null;
+    this.collaborationErrorUnsubscribe?.();
+    this.collaborationErrorUnsubscribe = null;
+    this.collaborationErrorMessage = null;
     this.collaborationAssetUnsubscribe?.();
     this.collaborationAssetUnsubscribe = null;
     const session = this.collaborationSession;
@@ -171,6 +186,9 @@ export const collaborationMethods = {
 
   applyCollaborationState(this: FreeformRenderer, state: CollaborationSessionState): void {
     this.collaborationState = state;
+    // A reconnect that succeeds retires the message that explained the
+    // failure -- leaving it up would misreport a working room as broken.
+    if (state.status === 'connected') this.collaborationErrorMessage = null;
     this.renderCollaborationPresence();
     if (this.collaborationPublishingLocal) return;
     const current = collaborationBoard(this.board);
@@ -229,6 +247,10 @@ export const collaborationMethods = {
       warning.setText('⚠');
       warning.setAttribute('aria-label', state.compatibilityWarnings.join(' '));
       warning.setAttribute('data-tooltip-position', 'bottom');
+    }
+    if (state.status !== 'connected' && this.collaborationErrorMessage) {
+      const reason = host.createDiv('visual-notes-collaboration-reason');
+      reason.setText(this.collaborationErrorMessage);
     }
     const transfer = this.collaborationConfig.assetClient?.transfer();
     if (transfer) {

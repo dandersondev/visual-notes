@@ -260,6 +260,11 @@ export class CollaborationSession {
     for (const listener of this.stateListeners) listener(state);
   }
 
+  /** Raises an error exactly as the transport would. Test seam only. */
+  emitErrorForTest(message: string): void {
+    this.emitError(message);
+  }
+
   private emitError(message: string): void {
     for (const listener of this.errorListeners) listener(message);
   }

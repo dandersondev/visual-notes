@@ -1323,6 +1323,13 @@ export const cardsKanbanMethods = {
     this.appendKanbanItem(itemsEl, owner, item);
     const newItemEl = itemsEl.lastElementChild as HTMLElement | null;
     newItemEl?.scrollIntoView({ block: 'nearest' });
+    // The item is appended straight to the DOM rather than going through a
+    // rebuild, so nothing else here would ever persist it: the board was left
+    // holding an item no save had been asked for, and closing without making
+    // some other edit lost it outright. In a room it was worse than lost --
+    // an unpublished local change holds incoming operations back, so one
+    // added item froze every collaborator's view until something else saved.
+    this.scheduleSave();
   },
 
   promptItemTag(this: FreeformRenderer, owner: KanbanItemsOwner, item: KanbanItem): void {

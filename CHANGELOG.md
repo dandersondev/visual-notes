@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.5
+
+### Fixed
+- **Adding a card to a Kanban board did not save it.** The new card appeared straight away and looked settled, but nothing had been asked to write it — so closing the board without making some other change lost it. In a collaboration room it did more damage than that: a board holds incoming changes back while it has work of its own still to send, and this change was never sent, so a single added card froze every collaborator's view of that board until something else happened to save. That is why cards seemed to appear only for the person who added them, and why moving the board around made everyone catch up at once. Moving cards between columns, renaming, and every other Kanban action already saved correctly; adding was the only one that did not.
+- **A board that could not reach its room would not say why.** Visual Notes has always worked out the reason — the host being asleep or offline, an invitation that has been revoked, a room using a board format this version cannot read — but nothing was showing it, so the board simply read *disconnected* and left you guessing. The reason now appears both as a message and beneath the connection status for as long as the problem lasts, and clears itself the moment the room reconnects. If a room will not open, the board will now tell you what to check, including the exact address it tried to reach.
+
 ## 1.4.4
 
 ### Added
