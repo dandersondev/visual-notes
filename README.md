@@ -6,7 +6,35 @@ Boards that live in your [Obsidian](https://obsidian.md) vault as real Canvas fi
 
 A place to think in space rather than in a list, the way you would in Milanote, Notion or Trello: plan a project across a wall of sticky notes, keep a reading list as icon tiles, run a kanban board, draw over the top of it, and connect the pieces with labelled lines.
 
-**How is this different from Obsidian's Canvas?** It *is* Canvas — the same spec-compliant `.canvas` file, sitting in your vault, openable in the native view. Visual Notes adds what Canvas leaves out: storyboards, kanban boards, tables, checklists, calendars, columns, group frames, pen and highlighter drawing, and boards that nest inside one another.
+**How is this different from Obsidian's Canvas?** It *is* Canvas — the same spec-compliant `.canvas` file, sitting in your vault, openable in the native view. Visual Notes adds what Canvas leaves out: live collaboration, storyboards, kanban boards, tables, checklists, calendars, columns, group frames, pen and highlighter drawing, and boards that nest inside one another.
+
+---
+
+## Experimental collaboration
+
+**Work on the same board at the same time.** Live cursors, live selections, live edits — everyone watching the same canvas change as it changes.
+
+No cloud, no account, and no server but yours. One desktop participant hosts the room from inside Obsidian and everyone else joins with an invitation, over a private network you already control. Nothing is routed through Visual Notes, because there is nothing to route it through.
+
+Everyone keeps an ordinary `.canvas` file in their own vault, so a board is still yours when the session ends and the host goes offline.
+
+Cards, connections, drawings, nested boards, kanban boards, cursors and selections all update across the room. Shared images are saved into each participant's own vault as they arrive, so they still open long after the room has closed. Video is streamed from the host rather than copied, so a shared clip plays during the session but is not kept afterwards.
+
+This is an opt-in experimental feature. It is intended for trusted collaborators using the same Visual Notes version. The host must keep Obsidian running and the computer awake. Mobile devices can join rooms but cannot host them.
+
+**Collaboration needs Obsidian 1.11.4 or newer**, which is the version that added the secure storage Visual Notes keeps the server secret in. Every other feature works on Obsidian 1.7.2 and up as it always has — on an older Obsidian the collaboration setting simply says it is unavailable, and the rest of the plugin, including future updates, is unaffected.
+
+### Network and privacy disclosure
+
+- Visual Notes does **not** operate a collaboration cloud, create user accounts, collect telemetry, or receive room data.
+- Participants provide their own private connection: a trusted physical LAN or a virtual/private network such as Tailscale, ZeroTier, WireGuard, or Headscale. Visual Notes is not affiliated with those providers.
+- Private-network rooms use `ws://` inside that private connection. Do not expose the collaboration port directly to the public internet. Use an encrypted virtual network when collaborating across the internet.
+- The host stores the canonical room snapshots and transferred media beneath `.obsidian/visual-notes-collaboration` in the host vault. Other participants store their normal local Canvas and any downloaded vault assets in their own vaults.
+- The server secret is stored through Obsidian SecretStorage, not in the plugin's `data.json` or a board. A complete invitation contains the private server address, server credential, and room invitation; treat it like a password and share it only with people you trust.
+- Room membership has owner, editor, and viewer roles. Owners can rotate invitations, remove members, export room metadata, clean expired shared media, or delete the hosted room tree without deleting anyone's local Canvas files.
+- Keep backups of important vaults. Experimental collaboration is not a backup service, and a sleeping host, network interruption, firewall rule, or removed virtual-network membership can make a room temporarily unavailable.
+
+Enable it under **Settings → Visual Notes → Experimental collaboration**, choose the private network interface on the host, select **Start hosting**, create a room from the collaboration bar, and share the copied invitation. Joining devices paste that invitation into **Join room**.
 
 ---
 
@@ -31,28 +59,6 @@ A Storyboard is one canvas card containing an entire visual sequence, so plannin
 - Open the bundled **Screenwriting** template for a working four-shot example
 
 The Storyboard remains one normal, movable and resizable JSON Canvas node. Obsidian's native Canvas shows a readable Markdown shot list, while Visual Notes stores the full scene sections, shots, annotations and shot-relative ink in the node's `vn` metadata.
-
----
-
-## Experimental collaboration
-
-Visual Notes can share a freeform board live over a private network. One desktop participant hosts the room from Obsidian; other desktop, phone, or tablet installations join with an invitation. Cards, connections, drawings, nested boards, cursors, selections, images, and supported video files update across the room while every participant keeps an ordinary local `.canvas` file in their own vault.
-
-This is an opt-in experimental feature. It is intended for trusted collaborators using the same Visual Notes version. The host must keep Obsidian running and the computer awake. Mobile devices can join rooms but cannot host them.
-
-**Collaboration needs Obsidian 1.11.4 or newer**, which is the version that added the secure storage Visual Notes keeps the server secret in. Every other feature works on Obsidian 1.7.2 and up as it always has — on an older Obsidian the collaboration setting simply says it is unavailable, and the rest of the plugin, including future updates, is unaffected.
-
-### Network and privacy disclosure
-
-- Visual Notes does **not** operate a collaboration cloud, create user accounts, collect telemetry, or receive room data.
-- Participants provide their own private connection: a trusted physical LAN or a virtual/private network such as Tailscale, ZeroTier, WireGuard, or Headscale. Visual Notes is not affiliated with those providers.
-- Private-network rooms use `ws://` inside that private connection. Do not expose the collaboration port directly to the public internet. Use an encrypted virtual network when collaborating across the internet.
-- The host stores the canonical room snapshots and transferred media beneath `.obsidian/visual-notes-collaboration` in the host vault. Other participants store their normal local Canvas and any downloaded vault assets in their own vaults.
-- The server secret is stored through Obsidian SecretStorage, not in the plugin's `data.json` or a board. A complete invitation contains the private server address, server credential, and room invitation; treat it like a password and share it only with people you trust.
-- Room membership has owner, editor, and viewer roles. Owners can rotate invitations, remove members, export room metadata, clean expired shared media, or delete the hosted room tree without deleting anyone's local Canvas files.
-- Keep backups of important vaults. Experimental collaboration is not a backup service, and a sleeping host, network interruption, firewall rule, or removed virtual-network membership can make a room temporarily unavailable.
-
-Enable it under **Settings → Visual Notes → Experimental collaboration**, choose the private network interface on the host, select **Start hosting**, create a room from the collaboration bar, and share the copied invitation. Joining devices paste that invitation into **Join room**.
 
 ---
 

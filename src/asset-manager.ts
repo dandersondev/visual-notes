@@ -111,6 +111,60 @@ export async function deliverExport(
   return null;
 }
 
+/**
+ * Where a shared collaboration asset lands in a peer's own vault.
+ *
+ * Deterministic on purpose: every peer computes the same path from the asset
+ * alone, so a card can find a previously downloaded file without anything
+ * being recorded anywhere. That matters because the card's own `source.path`
+ * is *shared* board state -- rewriting it to point at a local copy would
+ * publish that path to everyone else and break it for all of them. The hash
+ * suffix also makes a collision impossible: two different files can never
+ * claim the same name.
+ */
+export function sharedAssetVaultPath(name: string | undefined, hash: string): string {
+  // A shared asset need not carry a name; the hash is what identifies it.
+  const safe = name ?? 'shared';
+  // The name arrives from another machine, so it is untrusted input on a
+  // filesystem path. A name with no dot has no extension to take -- reading
+  // the whole name as one would file "holiday" as a .holiday.
+  const dot = safe.lastIndexOf('.');
+  const ext = (dot > 0 ? safe.slice(dot + 1).toLowerCase().match(/^[a-z0-9]{1,8}$/)?.[0] : undefined) ?? 'bin';
+  // Strip every separator and reserved character, collapse any run of dots,
+  // and trim dots and spaces off both ends -- so a crafted name cannot climb
+  // out of _Assets, and cannot land as a name Windows refuses to create.
+  const base = safe.slice(0, dot > 0 ? dot : undefined)
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\.{2,}/g, '_')
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+    || 'shared';
+  return `_Assets/${assetSubfolder(ext)}/${base}-${hash.slice(0, 8)}.${ext}`;
+}
+
+/**
+ * Writes a downloaded shared asset into this vault, so it survives the room.
+ *
+ * A guest used to see shared pictures only while connected: the bytes lived in
+ * an in-memory blob URL and were never saved, so they vanished the moment the
+ * host went away and the board was left full of holes. Returns the path, or
+ * undefined if it could not be written -- a failure here must never stop the
+ * picture being shown from memory.
+ */
+export async function saveSharedAsset(
+  app: App, name: string | undefined, hash: string, data: ArrayBuffer,
+): Promise<string | undefined> {
+  const path = sharedAssetVaultPath(name, hash);
+  try {
+    if (app.vault.getAbstractFileByPath(path)) return path;
+    await ensureDir(app, path.slice(0, path.lastIndexOf('/')));
+    await app.vault.createBinary(path, data);
+    return path;
+  } catch (error) {
+    console.error('Visual Notes: could not save shared asset', error);
+    return undefined;
+  }
+}
+
 export async function saveNewAsset(app: App, data: ArrayBuffer, filename: string): Promise<string> {
   const ext      = filename.split('.').pop() ?? 'bin';
   const base     = filename.replace(/\.[^.]+$/, '');

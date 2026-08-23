@@ -13,7 +13,7 @@ import {
 } from './thumbnail-utils';
 import { TextFormatToolbar } from './text-format-toolbar';
 import { snap } from './canvas/snap';
-import { sortAssetFile, saveNewAsset } from './asset-manager';
+import { sortAssetFile, saveNewAsset, sharedAssetVaultPath } from './asset-manager';
 import {
   IMAGE_DEFAULT_W, IMAGE_DEFAULT_H, IMAGE_MIN_H,
   BOOKMARK_DEFAULT_W, BOOKMARK_DEFAULT_H, AUDIO_DEFAULT_W, AUDIO_DEFAULT_H,
@@ -84,9 +84,16 @@ export const cardsMediaMethods = {
     const img = wrap.createEl('img', { cls: 'visual-notes-image-img' });
 
     if (card.source.type === 'vault') {
-      const vf = this.app.vault.getAbstractFileByPath(card.source.path);
-      if (vf instanceof TFile) {
-        img.src = this.app.vault.getResourcePath(vf);
+      // A copy this vault kept from a room is tried before the room itself, so
+      // a shared picture keeps working once the host has gone -- and once the
+      // session is over entirely. The path is recomputed from the asset rather
+      // than stored on the card, because the card's own path is shared with
+      // every other peer and must keep pointing at the host's copy.
+      const shared = card.source.sharedAsset;
+      const local = this.app.vault.getAbstractFileByPath(card.source.path)
+        ?? (shared ? this.app.vault.getAbstractFileByPath(sharedAssetVaultPath(shared.name, shared.hash)) : null);
+      if (local instanceof TFile) {
+        img.src = this.app.vault.getResourcePath(local);
       } else if (card.source.sharedAsset && this.collaborationConfig?.room && this.collaborationConfig.assetClient) {
         wrap.addClass('visual-notes-image-missing');
         const label = wrap.createDiv({ cls: 'visual-notes-image-missing-label', text: 'Loading shared image…' });

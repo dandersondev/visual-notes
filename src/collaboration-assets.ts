@@ -1,5 +1,6 @@
 import { App, requestUrl, TFile } from 'obsidian';
 import type { SharedAssetRef, VisualNotesFile } from './file-types';
+import { saveSharedAsset } from './asset-manager';
 import type { CollaborationIdentity } from './collaboration-identity';
 import {
   collaborationHttpBase, type CollaborationRoomCredentials, type CollaborationServiceToken,
@@ -179,6 +180,18 @@ export class CollaborationAssetClient {
     const digest = await crypto.subtle.digest('SHA-256', response.arrayBuffer);
     const hash = [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
     if (hash !== asset.hash) throw new Error('Shared image content could not be verified.');
+    // Keep a copy. Until this existed a guest saw shared pictures only while
+    // connected -- the bytes lived in the blob URL below and nothing else, so
+    // they vanished when the host went away. Images only: a video is streamed
+    // rather than downloaded, and writing up to 250 MB into someone's vault
+    // because they joined a room is not a decision to make on their behalf.
+    // The board is deliberately not touched -- `source.path` is shared state,
+    // and pointing it at a local copy would publish that path to every peer.
+    // sharedAssetVaultPath is derived from the asset alone, so the renderer
+    // recomputes it later without anything having been recorded.
+    if (asset.mimeType.startsWith('image/')) {
+      await saveSharedAsset(this.app, asset.name, asset.hash, response.arrayBuffer);
+    }
     const url = URL.createObjectURL(new Blob([response.arrayBuffer], { type: asset.mimeType }));
     this.objectUrls.set(asset.hash, url);
     return url;

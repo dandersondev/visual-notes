@@ -2,6 +2,14 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.6
+
+### Fixed
+- **Shared images vanished for everyone except the host once a room closed.** Pictures a collaborator shared were only ever held in memory while the connection lasted, so they looked fine during the session and then disappeared — leaving a board full of gaps that nothing could fill in, because the only copy was on a computer that was no longer hosting. Shared images are now saved into your own vault as they arrive, and open normally afterwards whether or not anyone is hosting. This applies to images only: a shared video is played from the host rather than copied, since quietly writing a file of that size into someone's vault because they joined a room is not a decision Visual Notes should make for you.
+
+### Changed
+- The read-me now opens with collaboration rather than storyboards, and says plainly what shared media does and does not keep.
+
 ## 1.4.5
 
 ### Fixed
