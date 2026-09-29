@@ -1,4 +1,4 @@
-import { parseYouTubeId, youTubeThumbnailUrl } from './thumbnail-utils';
+import { parseYouTubeId } from './thumbnail-utils';
 import type { PdfLink } from './pdf-export';
 import type { Card } from './file-types';
 
@@ -10,7 +10,7 @@ export function prepareYouTubeExport(root: HTMLElement): () => void {
     const parent = iframe.parentElement;
     if (!id || !parent) continue;
     const img = parent.createEl('img', { cls: 'visual-notes-export-youtube-thumbnail' });
-    img.src = youTubeThumbnailUrl(id);
+    img.src = `https://img.youtube.com/vi/${encodeURIComponent(id)}/maxresdefault.jpg`;
     img.alt = 'YouTube video';
     img.setCssStyles({
       position: 'absolute', inset: '0', width: '100%', height: '100%',
@@ -19,6 +19,13 @@ export function prepareYouTubeExport(root: HTMLElement): () => void {
     posters.push(img);
   }
   return () => { for (const poster of posters) poster.remove(); };
+}
+
+/** Some videos lack the larger posters; try progressively smaller sources. */
+export function exportImageSources(img: HTMLImageElement): string[] {
+  if (!img.classList.contains('visual-notes-export-youtube-thumbnail')) return [img.src];
+  return ['maxresdefault', 'hq720', 'sddefault', 'hqdefault', 'mqdefault']
+    .map(size => img.src.replace(/maxresdefault\.jpg$/, `${size}.jpg`));
 }
 
 /** Measure rendered cards so nested bookmarks and the current zoom line up. */

@@ -158,7 +158,9 @@ export const EXPORT_IMAGE_TOLERANCE = {
  * so a copy made here would not be what gets rasterised. Always call the
  * returned restore function in a `finally`.
  */
-export async function inlineRemoteImages(root: HTMLElement): Promise<() => void> {
+export async function inlineRemoteImages(
+  root: HTMLElement, imageSources: (img: HTMLImageElement) => string[] = img => [img.src],
+): Promise<() => void> {
   const remote = Array.from(root.querySelectorAll('img'))
     .filter(img => /^https?:/i.test(img.src));
   const restore: { img: HTMLImageElement; src: string }[] = [];
@@ -166,18 +168,34 @@ export async function inlineRemoteImages(root: HTMLElement): Promise<() => void>
   await Promise.all(remote.map(async (img) => {
     const original = img.src;
     restore.push({ img, src: original });
+    let timeout: number | undefined;
+    const deadline = Date.now() + EXPORT_IMAGE_TIMEOUT_MS;
+    const fetchImage = async () => {
+      for (const url of imageSources(img)) {
+        if (Date.now() >= deadline) break;
+        try {
+          const res = await requestUrl({ url });
+          if (res.status >= 400) continue;
+          const type = res.headers['content-type'] || res.headers['Content-Type'] || 'image/png';
+          if (!type.toLowerCase().startsWith('image/')) continue;
+          return `data:${type};base64,${arrayBufferToBase64(res.arrayBuffer)}`;
+        } catch { /* Try the next thumbnail size, if one is available. */ }
+      }
+      throw new Error('No export image available');
+    };
     try {
-      const res = await Promise.race([
-        requestUrl({ url: original }),
-        new Promise<never>((_, rej) =>
-          window.setTimeout(() => rej(new Error('timed out')), EXPORT_IMAGE_TIMEOUT_MS)),
+      img.src = await Promise.race([
+        fetchImage(),
+        new Promise<never>((_, rej) => {
+          timeout = window.setTimeout(() => rej(new Error('timed out')), EXPORT_IMAGE_TIMEOUT_MS);
+        }),
       ]);
-      const type = res.headers['content-type'] || res.headers['Content-Type'] || 'image/png';
-      img.src = `data:${type};base64,${arrayBufferToBase64(res.arrayBuffer)}`;
     } catch {
       // Unreachable, blocked, or slow. A transparent pixel loads, and loading
       // is the only thing that matters here.
       img.src = TRANSPARENT_PX;
+    } finally {
+      if (timeout !== undefined) window.clearTimeout(timeout);
     }
   }));
 

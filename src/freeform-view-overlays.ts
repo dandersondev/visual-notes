@@ -24,7 +24,7 @@ import { CropImageModal } from './crop-modal';
 import { toggleBulletList } from './bullet-list';
 import { toPng } from 'html-to-image';
 import { buildSingleImagePdf, dataUrlToBytes } from './pdf-export';
-import { collectExportLinks, prepareYouTubeExport } from './export-link-previews';
+import { collectExportLinks, exportImageSources, prepareYouTubeExport } from './export-link-previews';
 import {
   TILE_DEFAULT_W, TILE_DEFAULT_H, STICKY_DEFAULT_W,
   BOOKMARK_DEFAULT_W,
@@ -1165,7 +1165,7 @@ export const overlaysMethods = {
       let restoreImages = () => {};
       let dataUrl: string;
       try {
-        restoreImages = await inlineRemoteImages(this.inner);
+        restoreImages = await inlineRemoteImages(this.inner, exportImageSources);
         dataUrl = await toPng(this.inner, {
           width, height, pixelRatio, backgroundColor: bg,
           style: {

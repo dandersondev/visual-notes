@@ -917,6 +917,23 @@ describe('UI smoke: deleting a card resets the floating format bar (bug #5)', ()
 });
 
 describe('UI smoke: keyboard shortcut', () => {
+  it.each(['Delete', 'Backspace'])('%s deletes a clicked card after focus was outside the board', key => {
+    const sticky: StickyCard = { id: 's1', kind: 'sticky', x: 0, y: 0, w: 240, h: 160, text: 'hi', color: '#fff' };
+    const { renderer, board } = setup([sticky]);
+    const input = document.body.createEl('input');
+    input.focus();
+    const card = renderer.cardEls.get('s1')!;
+    card.dispatchEvent(pointer('pointerdown', 20, 20));
+    card.dispatchEvent(pointer('pointerup', 20, 20));
+    expect(renderer.selection.has('s1')).toBe(true);
+    expect(document.activeElement).toBe(renderer.outer);
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    expect(board.cards).toHaveLength(0);
+    renderer.undo();
+    expect(board.cards.map(c => c.id)).toEqual(['s1']);
+    input.remove();
+  });
+
   it('Delete removes the selected card from board data', () => {
     const sticky: StickyCard = { id: 's1', kind: 'sticky', x: 0, y: 0, w: 240, h: 160, text: 'hi', color: '#fff' };
     const { renderer, board } = setup([sticky]);

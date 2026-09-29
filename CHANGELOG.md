@@ -2,6 +2,13 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.8
+
+### Fixed
+- **YouTube thumbnails looked blurry in PNG and PDF exports.** Exports now request the maximum-resolution thumbnail, try an HD variant next, and fall back to smaller sizes only when necessary. Available image quality depends on the source video.
+- **Delete and Backspace could do nothing after selecting a card.** Selecting a card now gives the canvas keyboard focus instead of leaving it in a previous editor or another pane. Native video controls retain their keyboard interaction.
+- Includes the corrected Obsidian element and styling helpers for YouTube export previews, so this release can receive a fresh automated review.
+
 ## 1.4.7
 
 ### Fixed

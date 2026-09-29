@@ -387,7 +387,7 @@ export const canvasMethods = {
       // (what the key event actually fired on) rather than
       // activeDocument.activeElement — the two always agree for a real
       // keypress, but target is what's actually available here.
-      const withinBoard = e.target instanceof Node && this.container.contains(e.target);
+      const withinBoard = keyTarget?.instanceOf(Node) && this.container.contains(keyTarget);
       if (withinBoard) this.onKeyDown(e);
 
       // The shortcuts below used to carry their own, much stricter gate:
@@ -1188,6 +1188,12 @@ export const canvasMethods = {
       // controls are driven by, so it has to be skipped for the same reason
       // the kanban header skips it.
       if (!isKanbanHeaderArea && !onVideo) e.preventDefault();
+
+      // Cancelling pointerdown also cancels the browser's focus change.
+      // Give card selection keyboard focus so Delete/Backspace do not stay
+      // routed to the previously focused editor or another workspace pane.
+      // Native video controls retain their own keyboard interaction.
+      if (!onVideo) this.outer.focus({ preventScroll: true });
 
       if (this.selectedConnectionId) this.deselectConnection();
 

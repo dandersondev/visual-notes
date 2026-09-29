@@ -58,12 +58,31 @@ describe('YouTube board export', () => {
       return 'data:image/png;base64,AQID';
     });
     await overlaysMethods.exportBoard.call(renderer as never, 'png', new Set(['yt']));
-    expect(request).toHaveBeenCalledWith({ url: 'https://img.youtube.com/vi/abcdefghijk/mqdefault.jpg' });
+    expect(request).toHaveBeenCalledExactlyOnceWith({ url: 'https://img.youtube.com/vi/abcdefghijk/maxresdefault.jpg' });
     expect(deliver).toHaveBeenCalledOnce();
     expect(inner.querySelector('img')).toBeNull();
     expect(inner.querySelector('iframe')).toBe(iframe);
     expect(card.classList.contains('is-selected')).toBe(true);
     expect(inner.classList.contains('visual-notes-exporting')).toBe(false);
+  });
+
+  it('falls back to an available thumbnail when larger sizes are missing', async () => {
+    const { renderer, inner } = setup();
+    request.mockRejectedValueOnce(new Error('404')).mockRejectedValueOnce(new Error('404'))
+      .mockResolvedValueOnce({ status: 404, headers: {} });
+    capture.mockImplementation(async () => {
+      expect(inner.querySelector('img')?.src).toBe('data:image/jpeg;base64,AQID');
+      return 'data:image/png;base64,AQID';
+    });
+    await overlaysMethods.exportBoard.call(renderer as never, 'png');
+    expect(request.mock.calls.map(([arg]) => arg.url)).toEqual([
+      'https://img.youtube.com/vi/abcdefghijk/maxresdefault.jpg',
+      'https://img.youtube.com/vi/abcdefghijk/hq720.jpg',
+      'https://img.youtube.com/vi/abcdefghijk/sddefault.jpg',
+      'https://img.youtube.com/vi/abcdefghijk/hqdefault.jpg',
+    ]);
+    expect(deliver).toHaveBeenCalledOnce();
+    expect(inner.querySelector('img')).toBeNull();
   });
 
   it('removes capture posters and restores selection when rasterisation fails', async () => {
