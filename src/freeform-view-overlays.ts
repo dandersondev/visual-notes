@@ -23,9 +23,10 @@ import { promptSaveBoardAsTemplate } from './file-io';
 import { CropImageModal } from './crop-modal';
 import { toggleBulletList } from './bullet-list';
 import { toCanvas } from 'html-to-image';
-import { buildSingleImagePdf, dataUrlToBytes } from './pdf-export';
+import { buildSingleImagePdf, dataUrlToBytes, type PdfImagePatch } from './pdf-export';
 import { collectExportLinks, exportImageSources, prepareYouTubeExport } from './export-link-previews';
 import { preparePdfExport } from './export-pdf-previews';
+import { capturePdfDetails } from './export-pdf-details';
 import {
   TILE_DEFAULT_W, TILE_DEFAULT_H, STICKY_DEFAULT_W,
   BOOKMARK_DEFAULT_W,
@@ -1157,6 +1158,7 @@ export const overlaysMethods = {
       // inlineRemoteImages for the mechanism. Restored in the finally below,
       // because this mutates the live board.
       let links: ReturnType<typeof collectExportLinks> = [];
+      let pdfDetails: PdfImagePatch[] = [];
       const restorePreviews = prepareYouTubeExport(this.inner);
       let restoreImages = () => {};
       let restorePdfs = () => {};
@@ -1169,7 +1171,7 @@ export const overlaysMethods = {
         // Measure immediately before capture, after asynchronous previews load.
         // Keep CSS-pixel coordinates until the actual raster size is known.
         if (format === 'pdf') links = collectExportLinks(this.inner, this.board.cards, this.vp.zoom, PAD - bbox.minX, PAD - bbox.minY, 1, only);
-        canvas = await toCanvas(this.inner, {
+        const captureOptions: NonNullable<Parameters<typeof toCanvas>[1]> & { width: number; height: number } = {
           width, height, pixelRatio, backgroundColor: bg,
           style: {
             transform: `translate(${PAD - bbox.minX}px, ${PAD - bbox.minY}px)`,
@@ -1183,7 +1185,11 @@ export const overlaysMethods = {
             return true;
           },
           ...EXPORT_IMAGE_TOLERANCE,
-        });
+        };
+        canvas = await toCanvas(this.inner, captureOptions);
+        if (format === 'pdf') pdfDetails = await capturePdfDetails(
+          this.inner, pdfs.previews, captureOptions, this.vp.zoom, PAD - bbox.minX, PAD - bbox.minY,
+        );
       } finally {
         restoreImages();
         restorePdfs();
@@ -1207,6 +1213,10 @@ export const overlaysMethods = {
           ...link,
           x: link.x * canvas.width / width, y: link.y * canvas.height / height,
           width: link.width * canvas.width / width, height: link.height * canvas.height / height,
+        })), pdfDetails.map(detail => ({
+          ...detail,
+          x: detail.x * canvas.width / width, y: detail.y * canvas.height / height,
+          width: detail.width * canvas.width / width, height: detail.height * canvas.height / height,
         })));
         await deliverExport(this.app, pdfBytes, `${base}.pdf`, 'application/pdf');
       }

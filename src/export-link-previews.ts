@@ -28,6 +28,19 @@ export function exportImageSources(img: HTMLImageElement): string[] {
     .map(size => img.src.replace(/maxresdefault\.jpg$/, `${size}.jpg`));
 }
 
+export function measureExportScale(root: HTMLElement, zoom: number) {
+  const bounds = root.getBoundingClientRect();
+  // The board's stored zoom excludes ancestor CSS zoom/transforms (for
+  // example display scaling). Measure the actual screen-to-board scale.
+  const probe = root.createDiv();
+  probe.setCssStyles({ position: 'absolute', left: '0', top: '0', width: '100px', height: '100px', visibility: 'hidden', pointerEvents: 'none' });
+  const probeRect = probe.getBoundingClientRect();
+  probe.remove();
+  const scaleX = probeRect.width / 100 || zoom;
+  const scaleY = probeRect.height / 100 || zoom;
+  return { bounds, scaleX, scaleY };
+}
+
 /** Measure rendered cards so nested bookmarks and the current zoom line up. */
 export function collectExportLinks(
   root: HTMLElement, cards: Card[], zoom: number,
@@ -39,15 +52,7 @@ export function collectExportLinks(
     if (card.kind === 'column') card.children.forEach(visit);
   };
   cards.filter(card => !only || only.has(card.id)).forEach(visit);
-  const bounds = root.getBoundingClientRect();
-  // The board's stored zoom excludes ancestor CSS zoom/transforms (for
-  // example display scaling). Measure the actual screen-to-board scale.
-  const probe = root.createDiv();
-  probe.setCssStyles({ position: 'absolute', left: '0', top: '0', width: '100px', height: '100px', visibility: 'hidden', pointerEvents: 'none' });
-  const probeRect = probe.getBoundingClientRect();
-  probe.remove();
-  const scaleX = probeRect.width / 100 || zoom;
-  const scaleY = probeRect.height / 100 || zoom;
+  const { bounds, scaleX, scaleY } = measureExportScale(root, zoom);
   const links: PdfLink[] = [];
   for (const el of root.querySelectorAll<HTMLElement>('[data-id], [data-child-id]')) {
     const url = urls.get(el.dataset.id ?? el.dataset.childId ?? '');

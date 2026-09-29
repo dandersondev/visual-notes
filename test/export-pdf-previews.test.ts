@@ -13,7 +13,7 @@ function setup() {
   const root = document.body.createDiv();
   const el = root.createDiv({ attr: { 'data-id': 'pdf' } });
   const body = el.createDiv('visual-notes-file-body');
-  Object.defineProperties(body, { clientWidth: { value: 300 }, clientHeight: { value: 400 } });
+  Object.defineProperties(body, { clientWidth: { value: 300, configurable: true }, clientHeight: { value: 400, configurable: true } });
   const iframe = body.createEl('iframe', { cls: 'visual-notes-file-iframe' });
   const file = Object.assign(new TFile(), { path: 'Guide.pdf', extension: 'pdf' });
   const app = { vault: { getAbstractFileByPath: () => file, readBinary: vi.fn(async () => new Uint8Array([1, 2]).buffer) } };
@@ -29,11 +29,12 @@ function setup() {
 }
 
 describe('PDF file cards in board exports', () => {
-  it('renders the first page at export resolution and restores the live iframe', async () => {
+  it('renders a readable first page independently of small card dimensions and restores the live iframe', async () => {
     const { root, iframe, app, cards, render, getPage, destroy } = setup();
     const result = await preparePdfExport(root, app, cards, 2);
     expect(getPage).toHaveBeenCalledWith(1);
-    expect(render.mock.calls[0][0].viewport).toEqual({ width: 600, height: 800 });
+    expect(render.mock.calls[0][0].viewport).toEqual({ width: 1800, height: 2400 });
+    expect(result.previews[0]).toMatchObject({ width: 1800, height: 2400 });
     expect(root.querySelector('img')?.src).toBe('data:image/png;base64,AQID');
     expect(root.querySelector('iframe')).toBe(iframe);
     expect(root.querySelector('canvas')).toBeNull();
@@ -42,6 +43,21 @@ describe('PDF file cards in board exports', () => {
     result.restore();
     expect(root.querySelector('img')).toBeNull();
     expect(root.querySelector('iframe')).toBe(iframe);
+  });
+
+  it('keeps the document resolution when a large board requires a reduced raster scale', async () => {
+    const { root, app, cards, render } = setup();
+    const result = await preparePdfExport(root, app, cards, 0.25);
+    expect(render.mock.calls[0][0].viewport).toEqual({ width: 1800, height: 2400 });
+    result.restore();
+  });
+
+  it('caps large page renders to bound memory', async () => {
+    const { root, body, app, cards, render } = setup();
+    Object.defineProperties(body, { clientWidth: { value: 9000 }, clientHeight: { value: 12000 } });
+    const result = await preparePdfExport(root, app, cards, 2);
+    expect(render.mock.calls[0][0].viewport).toEqual({ width: 3072, height: 4096 });
+    result.restore();
   });
 
   it('includes PDFs in selected columns and skips unselected PDF cards', async () => {

@@ -1,6 +1,7 @@
-// Minimal single-page, single-image PDF writer.
+// Minimal single-page PDF writer with a board image and optional detail images.
 //
-// Board export only ever needs to wrap one already-rendered raster image
+// Board export wraps an already-rendered raster image (plus high-resolution
+// document regions, so the board canvas limit doesn't blur PDF previews)
 // into one PDF page — a full PDF library (jsPDF, the obvious choice, pulls
 // in html2canvas + canvg + dompurify as hard dependencies of its bundle
 // even though we'd never call any of the HTML/SVG features that need them;
@@ -31,7 +32,19 @@ export interface PdfLink {
   height: number;
 }
 
-export function buildSingleImagePdf(jpegBytes: Uint8Array, widthPx: number, heightPx: number, links: PdfLink[] = []): Uint8Array {
+/** A detailed board region placed over the base image, in base-image pixels. */
+export interface PdfImagePatch {
+  bytes: Uint8Array;
+  widthPx: number;
+  heightPx: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  filter: 'FlateDecode' | 'DCTDecode';
+}
+
+export function buildSingleImagePdf(jpegBytes: Uint8Array, widthPx: number, heightPx: number, links: PdfLink[] = [], patches: PdfImagePatch[] = []): Uint8Array {
   // PDF page geometry is in points (1/72"); treat exported pixels as 96dpi.
   const pageW = (widthPx * 72 / 96).toFixed(2);
   const pageH = (heightPx * 72 / 96).toFixed(2);
@@ -52,6 +65,7 @@ export function buildSingleImagePdf(jpegBytes: Uint8Array, widthPx: number, heig
     } catch { return []; }
   });
   const parts: Uint8Array[] = [];
+  const patchStart = 6 + annotations.length;
   const offsets: number[] = [0]; // 1-indexed; offsets[0] unused
   let pos = 0;
 
@@ -68,7 +82,7 @@ export function buildSingleImagePdf(jpegBytes: Uint8Array, widthPx: number, heig
   startObj(3);
   pushText(
     `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] ` +
-    `/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R ` +
+    `/Resources << /XObject << /Im0 4 0 R ${patches.map((_, i) => `/Im${i + 1} ${patchStart + i} 0 R`).join(' ')} >> >> /Contents 5 0 R ` +
     (annotations.length ? `/Annots [${annotations.map((_, i) => `${i + 6} 0 R`).join(' ')}] ` : '') + '>>\n'
   );
   endObj();
@@ -83,7 +97,10 @@ export function buildSingleImagePdf(jpegBytes: Uint8Array, widthPx: number, heig
   endObj();
 
   // Content stream: scale the unit square to the full page, then paint Im0.
-  const content = `q ${pageW} 0 0 ${pageH} 0 0 cm /Im0 Do Q`;
+  const content = `q ${pageW} 0 0 ${pageH} 0 0 cm /Im0 Do Q` + patches.map((p, i) => {
+    const [w, h, x, y] = [p.width, p.height, p.x, heightPx - p.y - p.height].map(n => (n * 72 / 96).toFixed(4));
+    return `\nq ${w} 0 0 ${h} ${x} ${y} cm /Im${i + 1} Do Q`;
+  }).join('');
   startObj(5);
   pushText(`<< /Length ${content.length} >>\nstream\n${content}\nendstream\n`);
   endObj();
@@ -94,8 +111,17 @@ export function buildSingleImagePdf(jpegBytes: Uint8Array, widthPx: number, heig
     endObj();
   });
 
+  patches.forEach((patch, i) => {
+    startObj(patchStart + i);
+    pushText(`<< /Type /XObject /Subtype /Image /Width ${patch.widthPx} /Height ${patch.heightPx} ` +
+      `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /${patch.filter} /Length ${patch.bytes.length} >>\nstream\n`);
+    pushBytes(patch.bytes);
+    pushText('\nendstream\n');
+    endObj();
+  });
+
   const xrefStart = pos;
-  const objCount = 6 + annotations.length;
+  const objCount = patchStart + patches.length;
   pushText(`xref\n0 ${objCount}\n`);
   pushText('0000000000 65535 f \n');
   for (let i = 1; i < objCount; i++) {

@@ -69,6 +69,26 @@ describe('pdf-export: buildSingleImagePdf', () => {
     expect(Array.from(embedded)).toEqual(Array.from(jpeg));
   });
 
+  it('preserves full-resolution detail images without moving the links or breaking xrefs', () => {
+    const detail = new Uint8Array([1, 2, 3, 4]);
+    const bytes = buildSingleImagePdf(jpeg, 800, 600,
+      [{ url: 'https://youtube.com', x: 40, y: 80, width: 320, height: 180 }],
+      [{ bytes: detail, filter: 'FlateDecode', widthPx: 1800, heightPx: 2400, x: 400, y: 100, width: 150, height: 200 }]);
+    const text = new TextDecoder('latin1').decode(bytes);
+    expect(text).toContain('/Annots [6 0 R]');
+    expect(text).toContain('/Im1 7 0 R');
+    expect(text).toContain('/Width 1800 /Height 2400');
+    expect(text).toContain('q 112.5000 0 0 150.0000 300.0000 225.0000 cm /Im1 Do Q');
+    const start = text.indexOf('stream\n', text.indexOf('/Filter /FlateDecode')) + 7;
+    expect(bytes.slice(start, start + detail.length)).toEqual(detail);
+    const xrefIdx = text.indexOf('xref\n');
+    const tableStart = text.indexOf('\n', text.indexOf('\n', xrefIdx) + 1) + 1;
+    for (let n = 1; n <= 7; n++) {
+      const offset = Number(textAt(bytes, tableStart + n * 20, 10));
+      expect(textAt(bytes, offset, `${n} 0 obj`.length)).toBe(`${n} 0 obj`);
+    }
+  });
+
   it('sizes the page from pixels at 96dpi converted to points (72/96)', () => {
     const match = text.match(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/);
     expect(match).toBeTruthy();

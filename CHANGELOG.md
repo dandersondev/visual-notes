@@ -2,6 +2,11 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.10
+
+### Fixed
+- **Attached PDF previews looked blurry when zooming into exported PDFs.** Document pages now render at a minimum of 2400 pixels on the longest side, with a 4096-pixel cap. PDF exports preserve high-resolution document regions separately from the board image, using lossless compression where supported. Overlapping cards, column clipping, and bookmark link positions are preserved. Previews remain static first pages.
+
 ## 1.4.9
 
 ### Fixed

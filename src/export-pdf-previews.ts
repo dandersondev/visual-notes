@@ -14,10 +14,16 @@ interface PdfJs {
   getDocument(options: { data: Uint8Array; isEvalSupported: boolean }): PdfLoadingTask;
 }
 
+export interface PdfExportPreview {
+  element: HTMLImageElement;
+  width: number;
+  height: number;
+}
+
 /** Render PDF file cards for capture; the live Chromium viewers stay attached. */
 export async function preparePdfExport(
   root: HTMLElement, app: App, cards: Card[], pixelRatio: number, only?: Set<string>,
-): Promise<{ restore: () => void; failed: string[] }> {
+): Promise<{ restore: () => void; failed: string[]; previews: PdfExportPreview[] }> {
   const files = new Map<string, string>();
   const visit = (card: Card) => {
     if (card.kind === 'file' && /\.pdf$/i.test(card.path)) files.set(card.id, card.path);
@@ -26,6 +32,7 @@ export async function preparePdfExport(
   cards.filter(card => !only || only.has(card.id)).forEach(visit);
   const previews: HTMLElement[] = [];
   const failed: string[] = [];
+  const rendered: PdfExportPreview[] = [];
   let library: Promise<PdfJs> | undefined;
   // Render sequentially to bound memory when a board contains many PDFs.
   for (const el of root.querySelectorAll<HTMLElement>('[data-id], [data-child-id]')) {
@@ -51,11 +58,15 @@ export async function preparePdfExport(
         const page = await pdf.getPage(1);
         if (expired) return;
         const natural = page.getViewport({ scale: 1 });
-        const scale = Math.min(
+        const fittedScale = Math.min(
           Math.max(1, body.clientWidth) * pixelRatio / natural.width,
           Math.max(1, body.clientHeight) * pixelRatio / natural.height,
-          4096 / Math.max(natural.width, natural.height),
         );
+        // A small card still needs a readable page when zooming into the PDF
+        // export. Render from the document, independently of the board zoom
+        // and the whole-board raster limit. Bound each page's working memory.
+        const longestSide = Math.max(natural.width, natural.height);
+        const scale = Math.min(Math.max(fittedScale, 2400 / longestSide), 4096 / longestSide);
         const viewport = page.getViewport({ scale });
         canvas.width = Math.max(1, Math.ceil(viewport.width));
         canvas.height = Math.max(1, Math.ceil(viewport.height));
@@ -74,6 +85,7 @@ export async function preparePdfExport(
       previews.push(img);
       img.src = canvas.toDataURL('image/png');
       img.setCssStyles({ position: 'absolute', inset: '0', width: '100%', height: '100%', objectFit: 'contain', background: '#fff' });
+      rendered.push({ element: img, width: canvas.width, height: canvas.height });
     } catch {
       failed.push(path);
       const fallback = body.createDiv({ cls: 'visual-notes-export-pdf-preview', text: `PDF preview unavailable: ${path}` });
@@ -86,5 +98,5 @@ export async function preparePdfExport(
       canvas.remove();
     }
   }
-  return { restore: () => { for (const preview of previews) preview.remove(); }, failed };
+  return { restore: () => { for (const preview of previews) preview.remove(); }, failed, previews: rendered };
 }
