@@ -31,6 +31,32 @@ describe('pdf-export: buildSingleImagePdf', () => {
     expect(text.startsWith('%PDF-1.4\n')).toBe(true);
   });
 
+  it('writes clickable URI annotations with bottom-left PDF coordinates and valid xrefs', () => {
+    const url = 'https://www.youtube.com/watch?v=abcdefghijk&t=12';
+    const linked = buildSingleImagePdf(jpeg, 800, 600, [{ url, x: 40, y: 80, width: 320, height: 180 }]);
+    const text = new TextDecoder('latin1').decode(linked);
+    expect(text).toContain('/Annots [6 0 R]');
+    expect(text).toContain('/Rect [30.00 255.00 270.00 390.00]');
+    expect(text).toContain(`/URI <${Buffer.from(url).toString('hex')}>`);
+    const xrefIdx = text.indexOf('xref\n');
+    const tableStart = text.indexOf('\n', text.indexOf('\n', xrefIdx) + 1) + 1;
+    for (let n = 1; n <= 6; n++) {
+      const offset = Number(textAt(linked, tableStart + n * 20, 10));
+      expect(textAt(linked, offset, `${n} 0 obj`.length)).toBe(`${n} 0 obj`);
+    }
+  });
+
+  it('clips links to the page and omits unsafe URLs and invalid rectangles', () => {
+    const link = { url: 'https://example.com/a(b)', x: -20, y: -10, width: 60, height: 50 };
+    const bytes = buildSingleImagePdf(jpeg, 800, 600, [
+      link, { ...link, url: 'javascript:alert(1)' }, { ...link, x: NaN }, { ...link, x: 900 },
+    ]);
+    const text = new TextDecoder().decode(bytes);
+    expect(text).toContain('/Annots [6 0 R]');
+    expect(text).toContain('/Rect [0.00 420.00 30.00 450.00]');
+    expect(text).toContain(`/URI <${Buffer.from(link.url).toString('hex')}>`);
+  });
+
   it('embeds the exact JPEG bytes with a matching /Length', () => {
     const idx = text.indexOf('/Filter /DCTDecode');
     expect(idx).toBeGreaterThan(-1);

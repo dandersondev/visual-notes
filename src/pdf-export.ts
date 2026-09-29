@@ -22,12 +22,35 @@ export function dataUrlToBytes(dataUrl: string): Uint8Array {
   return bytes;
 }
 
-export function buildSingleImagePdf(jpegBytes: Uint8Array, widthPx: number, heightPx: number): Uint8Array {
+export interface PdfLink {
+  url: string;
+  /** Rectangle in exported image pixels, measured from the top left. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export function buildSingleImagePdf(jpegBytes: Uint8Array, widthPx: number, heightPx: number, links: PdfLink[] = []): Uint8Array {
   // PDF page geometry is in points (1/72"); treat exported pixels as 96dpi.
   const pageW = (widthPx * 72 / 96).toFixed(2);
   const pageH = (heightPx * 72 / 96).toFixed(2);
 
   const enc = new TextEncoder();
+  const annotations = links.flatMap(link => {
+    try {
+      const url = new URL(link.url);
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') return [];
+      if (![link.x, link.y, link.width, link.height].every(Number.isFinite)) return [];
+      const left = Math.max(0, link.x), top = Math.max(0, link.y);
+      const right = Math.min(widthPx, link.x + link.width), bottom = Math.min(heightPx, link.y + link.height);
+      if (right <= left || bottom <= top) return [];
+      const rect = [left, heightPx - bottom, right, heightPx - top].map(n => (n * 72 / 96).toFixed(2)).join(' ');
+      // A hex string cannot be terminated by parentheses or backslashes in a URL.
+      const uri = Array.from(enc.encode(url.href), b => b.toString(16).padStart(2, '0')).join('');
+      return [{ rect, uri }];
+    } catch { return []; }
+  });
   const parts: Uint8Array[] = [];
   const offsets: number[] = [0]; // 1-indexed; offsets[0] unused
   let pos = 0;
@@ -45,7 +68,8 @@ export function buildSingleImagePdf(jpegBytes: Uint8Array, widthPx: number, heig
   startObj(3);
   pushText(
     `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] ` +
-    `/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\n`
+    `/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R ` +
+    (annotations.length ? `/Annots [${annotations.map((_, i) => `${i + 6} 0 R`).join(' ')}] ` : '') + '>>\n'
   );
   endObj();
 
@@ -64,8 +88,14 @@ export function buildSingleImagePdf(jpegBytes: Uint8Array, widthPx: number, heig
   pushText(`<< /Length ${content.length} >>\nstream\n${content}\nendstream\n`);
   endObj();
 
+  annotations.forEach(({ rect, uri }, i) => {
+    startObj(i + 6);
+    pushText(`<< /Type /Annot /Subtype /Link /Rect [${rect}] /Border [0 0 0] /A << /S /URI /URI <${uri}> >> >>\n`);
+    endObj();
+  });
+
   const xrefStart = pos;
-  const objCount = 6; // objects 1..5 plus the mandatory free entry 0
+  const objCount = 6 + annotations.length;
   pushText(`xref\n0 ${objCount}\n`);
   pushText('0000000000 65535 f \n');
   for (let i = 1; i < objCount; i++) {

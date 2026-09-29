@@ -24,6 +24,7 @@ import { CropImageModal } from './crop-modal';
 import { toggleBulletList } from './bullet-list';
 import { toPng } from 'html-to-image';
 import { buildSingleImagePdf, dataUrlToBytes } from './pdf-export';
+import { collectExportLinks, prepareYouTubeExport } from './export-link-previews';
 import {
   TILE_DEFAULT_W, TILE_DEFAULT_H, STICKY_DEFAULT_W,
   BOOKMARK_DEFAULT_W,
@@ -97,6 +98,7 @@ const EXPORT_EXCLUDED_CLASSES = [
   'visual-notes-connection-handle',
   'visual-notes-connection-bend-handle',
   'visual-notes-remote-selection',
+  'visual-notes-bookmark-youtube-overlay',
 ];
 
 function exportNodeFilter(node: HTMLElement): boolean {
@@ -1100,7 +1102,7 @@ export const overlaysMethods = {
         any = true;
       }
     }
-    for (const conn of this.board.connections) {
+    for (const conn of only ? [] : this.board.connections) {
       if (!conn.fromCardId && conn.fromPoint) {
         minX = Math.min(minX, conn.fromPoint.x); minY = Math.min(minY, conn.fromPoint.y);
         maxX = Math.max(maxX, conn.fromPoint.x); maxY = Math.max(maxY, conn.fromPoint.y);
@@ -1156,20 +1158,32 @@ export const overlaysMethods = {
       // or a single unreachable one rejects the whole export — see
       // inlineRemoteImages for the mechanism. Restored in the finally below,
       // because this mutates the live board.
-      const restoreImages = await inlineRemoteImages(this.inner);
+      const links = format === 'pdf'
+        ? collectExportLinks(this.inner, this.board.cards, this.vp.zoom, PAD - bbox.minX, PAD - bbox.minY, pixelRatio, only)
+        : [];
+      const restorePreviews = prepareYouTubeExport(this.inner);
+      let restoreImages = () => {};
       let dataUrl: string;
       try {
+        restoreImages = await inlineRemoteImages(this.inner);
         dataUrl = await toPng(this.inner, {
           width, height, pixelRatio, backgroundColor: bg,
           style: {
             transform: `translate(${PAD - bbox.minX}px, ${PAD - bbox.minY}px)`,
             transformOrigin: '0 0',
           },
-          filter: exportNodeFilter,
+          filter: node => {
+            if (!exportNodeFilter(node)) return false;
+            if (only && node.nodeType === 1 && node.classList.contains('visual-notes-freeform-card') && node.dataset.id) {
+              return only.has(node.dataset.id);
+            }
+            return true;
+          },
           ...EXPORT_IMAGE_TOLERANCE,
         });
       } finally {
         restoreImages();
+        restorePreviews();
         for (const el of reselect) el.addClass('is-selected');
         this.inner.removeClass('visual-notes-exporting');
       }
@@ -1198,7 +1212,7 @@ export const overlaysMethods = {
         ctx.drawImage(img, 0, 0);
         const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.92);
         const jpegBytes = dataUrlToBytes(jpegDataUrl);
-        const pdfBytes = buildSingleImagePdf(jpegBytes, canvas.width, canvas.height);
+        const pdfBytes = buildSingleImagePdf(jpegBytes, canvas.width, canvas.height, links);
         await deliverExport(this.app, pdfBytes, `${base}.pdf`, 'application/pdf');
       }
     } catch (err) {
