@@ -40,18 +40,41 @@ export function collectExportLinks(
   };
   cards.filter(card => !only || only.has(card.id)).forEach(visit);
   const bounds = root.getBoundingClientRect();
+  // The board's stored zoom excludes ancestor CSS zoom/transforms (for
+  // example display scaling). Measure the actual screen-to-board scale.
+  const probe = root.createDiv();
+  probe.setCssStyles({ position: 'absolute', left: '0', top: '0', width: '100px', height: '100px', visibility: 'hidden', pointerEvents: 'none' });
+  const probeRect = probe.getBoundingClientRect();
+  probe.remove();
+  const scaleX = probeRect.width / 100 || zoom;
+  const scaleY = probeRect.height / 100 || zoom;
   const links: PdfLink[] = [];
   for (const el of root.querySelectorAll<HTMLElement>('[data-id], [data-child-id]')) {
     const url = urls.get(el.dataset.id ?? el.dataset.childId ?? '');
     if (!url) continue;
     const rect = el.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) continue;
+    let left = rect.left, top = rect.top, right = rect.right, bottom = rect.bottom;
+    // A bookmark scrolled out of a column must not leave a clickable area
+    // on whichever card happens to be underneath it in the exported board.
+    for (let parent = el.parentElement; parent && parent !== root; parent = parent.parentElement) {
+      const style = parent.ownerDocument.defaultView!.getComputedStyle(parent);
+      const clip = parent.getBoundingClientRect();
+      if (/^(hidden|clip|auto|scroll)$/.test(style.overflowX)) {
+        left = Math.max(left, clip.left + parent.clientLeft * scaleX);
+        right = Math.min(right, clip.left + (parent.clientLeft + parent.clientWidth) * scaleX);
+      }
+      if (/^(hidden|clip|auto|scroll)$/.test(style.overflowY)) {
+        top = Math.max(top, clip.top + parent.clientTop * scaleY);
+        bottom = Math.min(bottom, clip.top + (parent.clientTop + parent.clientHeight) * scaleY);
+      }
+    }
+    if (right <= left || bottom <= top) continue;
     links.push({
       url,
-      x: ((rect.left - bounds.left) / zoom + originX) * pixelRatio,
-      y: ((rect.top - bounds.top) / zoom + originY) * pixelRatio,
-      width: rect.width / zoom * pixelRatio,
-      height: rect.height / zoom * pixelRatio,
+      x: ((left - bounds.left) / scaleX + originX) * pixelRatio,
+      y: ((top - bounds.top) / scaleY + originY) * pixelRatio,
+      width: (right - left) / scaleX * pixelRatio,
+      height: (bottom - top) / scaleY * pixelRatio,
     });
   }
   return links;

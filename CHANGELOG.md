@@ -2,6 +2,13 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.9
+
+### Fixed
+- **Attached PDFs were missing from board exports.** PDF file cards now export a static first-page preview in PNG and PDF exports. Unreadable documents show a labelled placeholder and a notice. These previews do not open the original attachment or provide independent page scrolling or zoom.
+- **YouTube and bookmark click areas could be misplaced in exported PDFs.** Link coordinates now account for display scaling and the actual captured image dimensions, and are measured after previews finish loading. Links inside scrolling columns are clipped to their visible area.
+- Very large boards now scale below 1x when needed to stay within the export canvas limit. Off-screen cards are fully laid out during capture.
+
 ## 1.4.8
 
 ### Fixed

@@ -22,9 +22,10 @@ import { sortAssetFile, saveNewAsset, deliverExport } from './asset-manager';
 import { promptSaveBoardAsTemplate } from './file-io';
 import { CropImageModal } from './crop-modal';
 import { toggleBulletList } from './bullet-list';
-import { toPng } from 'html-to-image';
+import { toCanvas } from 'html-to-image';
 import { buildSingleImagePdf, dataUrlToBytes } from './pdf-export';
 import { collectExportLinks, exportImageSources, prepareYouTubeExport } from './export-link-previews';
+import { preparePdfExport } from './export-pdf-previews';
 import {
   TILE_DEFAULT_W, TILE_DEFAULT_H, STICKY_DEFAULT_W,
   BOOKMARK_DEFAULT_W,
@@ -1133,11 +1134,8 @@ export const overlaysMethods = {
       // an unreasonably large canvas for a big board (memory scales with
       // width*height*4 bytes*pixelRatio^2).
       const MAX_CANVAS_DIM = 8000;
-      let pixelRatio = 2;
-      if (rawW * pixelRatio > MAX_CANVAS_DIM || rawH * pixelRatio > MAX_CANVAS_DIM) {
-        pixelRatio = Math.max(1, Math.floor(MAX_CANVAS_DIM / Math.max(rawW, rawH)));
-      }
       const width = Math.round(rawW), height = Math.round(rawH);
+      const pixelRatio = Math.min(2, MAX_CANVAS_DIM / Math.max(width, height));
       const bg = getComputedStyle(this.outer).backgroundColor || '#e6e6e6';
 
       // Selection is a class on the card element itself rather than a node of
@@ -1158,15 +1156,20 @@ export const overlaysMethods = {
       // or a single unreachable one rejects the whole export — see
       // inlineRemoteImages for the mechanism. Restored in the finally below,
       // because this mutates the live board.
-      const links = format === 'pdf'
-        ? collectExportLinks(this.inner, this.board.cards, this.vp.zoom, PAD - bbox.minX, PAD - bbox.minY, pixelRatio, only)
-        : [];
+      let links: ReturnType<typeof collectExportLinks> = [];
       const restorePreviews = prepareYouTubeExport(this.inner);
       let restoreImages = () => {};
-      let dataUrl: string;
+      let restorePdfs = () => {};
+      let canvas: HTMLCanvasElement;
       try {
+        const pdfs = await preparePdfExport(this.inner, this.app, this.board.cards, pixelRatio, only);
+        restorePdfs = pdfs.restore;
+        if (pdfs.failed.length) new Notice(`${pdfs.failed.length} PDF preview(s) could not be rendered; the export shows a placeholder.`);
         restoreImages = await inlineRemoteImages(this.inner, exportImageSources);
-        dataUrl = await toPng(this.inner, {
+        // Measure immediately before capture, after asynchronous previews load.
+        // Keep CSS-pixel coordinates until the actual raster size is known.
+        if (format === 'pdf') links = collectExportLinks(this.inner, this.board.cards, this.vp.zoom, PAD - bbox.minX, PAD - bbox.minY, 1, only);
+        canvas = await toCanvas(this.inner, {
           width, height, pixelRatio, backgroundColor: bg,
           style: {
             transform: `translate(${PAD - bbox.minX}px, ${PAD - bbox.minY}px)`,
@@ -1183,6 +1186,7 @@ export const overlaysMethods = {
         });
       } finally {
         restoreImages();
+        restorePdfs();
         restorePreviews();
         for (const el of reselect) el.addClass('is-selected');
         this.inner.removeClass('visual-notes-exporting');
@@ -1193,26 +1197,17 @@ export const overlaysMethods = {
         // deliverExport decides how the file reaches the user: a browser
         // download on desktop, a vault file on mobile, where the download
         // never worked. See its comment.
-        await deliverExport(this.app, dataUrlToBytes(dataUrl), `${base}.png`, 'image/png');
+        await deliverExport(this.app, dataUrlToBytes(canvas.toDataURL('image/png')), `${base}.png`, 'image/png');
       } else {
-        // Re-render as JPEG (not the PNG already captured above) so the raw
-        // bytes can be dropped straight into the PDF's DCTDecode image
-        // stream with no re-encoding — see pdf-export.ts for why that beats
-        // a full PDF library here.
-        const canvas = createEl('canvas');
-        canvas.width = Math.round(width * pixelRatio);
-        canvas.height = Math.round(height * pixelRatio);
-        const ctx = canvas.getContext('2d')!;
-        const img = new Image();
-        img.src = dataUrl;
-        await new Promise<void>((resolve, reject) => {
-          img.onload = () => resolve();
-          img.onerror = () => reject(new Error('Failed to decode rendered board image'));
-        });
-        ctx.drawImage(img, 0, 0);
+        // Use the captured canvas itself: allocating another canvas from
+        // guessed dimensions can desynchronise the raster and link rectangles.
         const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.92);
         const jpegBytes = dataUrlToBytes(jpegDataUrl);
-        const pdfBytes = buildSingleImagePdf(jpegBytes, canvas.width, canvas.height, links);
+        const pdfBytes = buildSingleImagePdf(jpegBytes, canvas.width, canvas.height, links.map(link => ({
+          ...link,
+          x: link.x * canvas.width / width, y: link.y * canvas.height / height,
+          width: link.width * canvas.width / width, height: link.height * canvas.height / height,
+        })));
         await deliverExport(this.app, pdfBytes, `${base}.pdf`, 'application/pdf');
       }
     } catch (err) {

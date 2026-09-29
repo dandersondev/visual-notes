@@ -4,7 +4,15 @@ import type { BookmarkCard, ColumnCard } from '../src/file-types';
 import { collectExportLinks } from '../src/export-link-previews';
 
 const { capture, request, deliver } = vi.hoisted(() => ({ capture: vi.fn(), request: vi.fn(), deliver: vi.fn() }));
-vi.mock('html-to-image', () => ({ toPng: capture }));
+vi.mock('html-to-image', () => ({
+  toCanvas: async (root: HTMLElement, options: { width: number; height: number; pixelRatio: number }) => {
+    const result = await capture(root, options);
+    return typeof result === 'string' ? {
+      width: Math.floor(options.width * options.pixelRatio), height: Math.floor(options.height * options.pixelRatio),
+      toDataURL: () => result,
+    } : result;
+  },
+}));
 vi.mock('../src/asset-manager', async importOriginal => ({
   ...await importOriginal<object>(), deliverExport: deliver,
 }));
@@ -104,11 +112,71 @@ describe('YouTube board export', () => {
     const column: ColumnCard = { kind: 'column', id: 'column', children: [bookmark] };
     delete card.dataset.id;
     card.dataset.childId = 'yt';
-    vi.spyOn(inner, 'getBoundingClientRect').mockReturnValue({ left: 100, top: 200 } as DOMRect);
-    vi.spyOn(card, 'getBoundingClientRect').mockReturnValue({ left: 125, top: 250, width: 160, height: 90 } as DOMRect);
+    vi.spyOn(inner, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 200, 0, 0));
+    vi.spyOn(card, 'getBoundingClientRect').mockReturnValue(new DOMRect(125, 250, 160, 90));
     expect(collectExportLinks(inner, [column], 0.5, 40, 40, 2, new Set(['column']))).toEqual([
       { url: bookmark.url, x: 180, y: 280, width: 640, height: 360 },
     ]);
     expect(collectExportLinks(inner, [column], 0.5, 40, 40, 2, new Set(['other']))).toEqual([]);
+  });
+
+  it('accounts for display scaling in addition to the board zoom', () => {
+    const { inner, card } = setup();
+    vi.spyOn(inner, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 200, 0, 0));
+    vi.spyOn(card, 'getBoundingClientRect').mockReturnValue(new DOMRect(175, 350, 240, 135));
+    const create = inner.createDiv.bind(inner);
+    vi.spyOn(inner, 'createDiv').mockImplementation(() => {
+      const probe = create();
+      vi.spyOn(probe, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 200, 75, 75));
+      return probe;
+    });
+    expect(collectExportLinks(inner, [bookmark], 0.5, 40, 40, 2)).toEqual([
+      { url: bookmark.url, x: 280, y: 480, width: 640, height: 360 },
+    ]);
+    expect(inner.children).toHaveLength(1);
+  });
+
+  it('clips link areas to the visible portion of a scrolling column', () => {
+    const { inner, card } = setup();
+    const parent = inner.createDiv();
+    parent.style.overflowY = 'auto';
+    parent.append(card);
+    Object.defineProperty(parent, 'clientHeight', { value: 150 });
+    vi.spyOn(inner, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 200, 0, 0));
+    vi.spyOn(parent, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 200, 160, 75));
+    const rect = vi.spyOn(card, 'getBoundingClientRect').mockReturnValue(new DOMRect(125, 250, 160, 90));
+    expect(collectExportLinks(inner, [bookmark], 0.5, 40, 40, 2)[0]).toEqual({
+      url: bookmark.url, x: 180, y: 280, width: 640, height: 100,
+    });
+    rect.mockReturnValue(new DOMRect(125, 300, 160, 90));
+    expect(collectExportLinks(inner, [bookmark], 0.5, 40, 40, 2)).toEqual([]);
+  });
+
+  it('uses the actual captured image dimensions for PDF link placement', async () => {
+    const { renderer, inner, card } = setup();
+    vi.spyOn(inner, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 200, 0, 0));
+    vi.spyOn(card, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 200, 160, 90));
+    const toDataURL = vi.fn(() => 'data:image/jpeg;base64,AQID');
+    // Exercise a raster smaller than the requested 800 x 520 pixels.
+    capture.mockResolvedValue({ width: 400, height: 260, toDataURL });
+    await overlaysMethods.exportBoard.call(renderer as never, 'pdf');
+    expect(deliver).toHaveBeenCalledOnce();
+    const pdf = new TextDecoder().decode(deliver.mock.calls[0][1]);
+    expect(pdf).toContain('/MediaBox [0 0 300.00 195.00]');
+    expect(pdf).toContain('/Rect [30.00 30.00 270.00 165.00]');
+    expect(toDataURL).toHaveBeenCalledWith('image/jpeg', 0.92);
+  });
+
+  it('reduces very large exports below 1x so they stay within the canvas limit', async () => {
+    const { renderer } = setup();
+    renderer.computeExportBBox = () => ({ minX: 0, minY: 0, maxX: 20000, maxY: 10000 });
+    capture.mockImplementation(async (_root, options) => {
+      expect(options.pixelRatio).toBeLessThan(1);
+      expect(options.width * options.pixelRatio).toBeLessThanOrEqual(8000);
+      expect(options.height * options.pixelRatio).toBeLessThanOrEqual(8000);
+      return 'data:image/png;base64,AQID';
+    });
+    await overlaysMethods.exportBoard.call(renderer as never, 'png');
+    expect(deliver).toHaveBeenCalledOnce();
   });
 });

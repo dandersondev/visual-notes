@@ -464,6 +464,7 @@ body.theme-dark {
    class rule above, so no !important (banned by stylesheet-compat.test.ts). */
 .visual-notes-exporting .visual-notes-freeform-card {
   transition: none;
+  content-visibility: visible;
 }
 
 /* Tile cards keep a lot of blank padding around the icon+label so a ring
