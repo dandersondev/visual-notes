@@ -7,13 +7,15 @@ export function prepareYouTubeExport(root: HTMLElement): () => void {
   const posters: HTMLImageElement[] = [];
   for (const iframe of root.querySelectorAll<HTMLIFrameElement>('.visual-notes-bookmark-youtube-iframe')) {
     const id = parseYouTubeId(iframe.src);
-    if (!id) continue;
-    const img = root.ownerDocument.createElement('img');
-    img.className = 'visual-notes-export-youtube-thumbnail';
+    const parent = iframe.parentElement;
+    if (!id || !parent) continue;
+    const img = parent.createEl('img', { cls: 'visual-notes-export-youtube-thumbnail' });
     img.src = youTubeThumbnailUrl(id);
     img.alt = 'YouTube video';
-    img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;';
-    iframe.parentElement?.appendChild(img);
+    img.setCssStyles({
+      position: 'absolute', inset: '0', width: '100%', height: '100%',
+      objectFit: 'contain', background: '#000',
+    });
     posters.push(img);
   }
   return () => { for (const poster of posters) poster.remove(); };

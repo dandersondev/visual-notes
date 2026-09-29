@@ -5,6 +5,7 @@ All notable user-facing changes to Visual Notes.
 ## 1.4.7
 
 ### Fixed
+- Updated YouTube export previews to use Obsidian's element and styling helpers, resolving the automated review's source-code error and warning.
 - **YouTube cards exported as empty rectangles.** PNG and PDF exports now show a static video thumbnail in place of the embedded player, including when exporting selected cards.
 - **Bookmark cards were not clickable in PDFs.** Exported PDFs now link bookmark cards to their original URLs, including bookmarks inside columns. PNG exports remain static images.
 - **Selection exports included unselected cards within the cropped area.** Only selected cards are now captured, and distant connection endpoints no longer enlarge the selection export.
