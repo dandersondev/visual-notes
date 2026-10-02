@@ -610,7 +610,7 @@ export class FreeformRenderer extends Component {
       'visual-notes-freeform-checklist-card', 'visual-notes-freeform-comment-card',
       'visual-notes-freeform-table-card', 'visual-notes-table-alt',
       'visual-notes-freeform-notelink-card',
-      'visual-notes-freeform-image-card', 'visual-notes-freeform-audio-card',
+      'visual-notes-freeform-image-card', 'has-transparent-pixels', 'visual-notes-freeform-audio-card',
       'visual-notes-freeform-bookmark-card', 'visual-notes-freeform-text-card'
     );
     switch (card.kind) {

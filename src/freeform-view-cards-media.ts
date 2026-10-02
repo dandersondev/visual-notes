@@ -13,6 +13,7 @@ import {
 } from './thumbnail-utils';
 import { TextFormatToolbar } from './text-format-toolbar';
 import { snap } from './canvas/snap';
+import { hasTransparentPixels } from './image-transparency';
 import { sortAssetFile, saveNewAsset, sharedAssetVaultPath } from './asset-manager';
 import {
   IMAGE_DEFAULT_W, IMAGE_DEFAULT_H, IMAGE_MIN_H,
@@ -130,6 +131,15 @@ export const cardsMediaMethods = {
     const clearPlaceholderBg = () => wrap.addClass('is-loaded');
     img.addEventListener('load', clearPlaceholderBg);
     if (img.complete) clearPlaceholderBg();
+
+    const source = card.source.type === 'vault' ? card.source.path : card.source.url;
+    if (/\.png(?:[?#]|$)/i.test(source) || /^data:image\/png[;,]/i.test(source)) {
+      const detectTransparency = () => {
+        if (hasTransparentPixels(img)) el.addClass('has-transparent-pixels');
+      };
+      img.addEventListener('load', detectTransparency);
+      if (img.complete) detectTransparency();
+    }
 
     const fixAspect = () => {
       if (img.naturalWidth > 0 && img.naturalHeight > 0) {

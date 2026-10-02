@@ -4616,6 +4616,23 @@ input.visual-notes-accent-pop-hex {
   background: transparent;
   border: 1px solid var(--background-modifier-border);
   gap: 0;
+  transition: box-shadow 120ms ease, border-color 120ms ease;
+}
+
+/* Transparent PNGs sit cleanly on the canvas; hover reveals the card bounds
+   for editing. Keep the border width to avoid shifting the image or caption. */
+.visual-notes-freeform-image-card.has-transparent-pixels {
+  border-color: transparent;
+}
+.visual-notes-freeform-image-card.has-transparent-pixels:hover {
+  border-color: var(--background-modifier-border);
+}
+
+/* Exports never include the frame, even if the pointer is over the card. */
+.visual-notes-exporting .visual-notes-freeform-image-card,
+.visual-notes-exporting .visual-notes-freeform-image-card.has-transparent-pixels:hover {
+  border-color: transparent;
+  transition: none;
 }
 
 .visual-notes-image-wrap {
