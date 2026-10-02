@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.11
+
+### Fixed
+- **Transparent PNG image cards showed a rectangular border in board exports.** PNG and PDF exports now omit the image frame, even when the pointer is over the card.
+- **Transparent PNGs showed a frame on the canvas at all times.** Their frame now fades in on hover, so the image remains easy to select without a permanent outline. Opaque images keep their usual frame.
+
 ## 1.4.10
 
 ### Fixed
