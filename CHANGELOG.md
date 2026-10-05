@@ -2,6 +2,11 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.12
+
+### Fixed
+- Transparent image detection now creates its canvas with Obsidian's `createEl` helper, resolving the `obsidianmd/prefer-create-el` review warning. Lint now rejects native DOM factories in plugin source to prevent this warning from returning.
+
 ## 1.4.11
 
 ### Fixed

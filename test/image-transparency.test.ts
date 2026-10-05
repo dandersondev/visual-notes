@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { hasTransparentPixels } from '../src/image-transparency';
 
 function imageWithAlpha(alpha: number[], width = alpha.length, height = 1) {
@@ -12,16 +12,17 @@ function imageWithAlpha(alpha: number[], width = alpha.length, height = 1) {
   const img = {
     naturalWidth: width,
     naturalHeight: height,
-    ownerDocument: { createElement: vi.fn(() => canvas) },
   } as unknown as HTMLImageElement;
+  vi.stubGlobal('createEl', vi.fn(() => canvas));
   return { img, canvas, ctx };
 }
 
 describe('transparent image detection', () => {
+  afterEach(() => vi.unstubAllGlobals());
   it('detects alpha pixels and leaves opaque images framed', () => {
     const transparent = imageWithAlpha([255, 100, 255]);
-    const opaque = imageWithAlpha([255, 255]);
     expect(hasTransparentPixels(transparent.img)).toBe(true);
+    const opaque = imageWithAlpha([255, 255]);
     expect(hasTransparentPixels(opaque.img)).toBe(false);
   });
 

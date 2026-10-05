@@ -1,7 +1,7 @@
 /** Detect visible transparency without allocating a full-size copy of a large PNG. */
 export function hasTransparentPixels(img: HTMLImageElement): boolean {
   if (!img.naturalWidth || !img.naturalHeight) return false;
-  const canvas = img.ownerDocument.createElement('canvas');
+  const canvas = createEl('canvas');
   canvas.width = Math.min(img.naturalWidth, 256);
   canvas.height = Math.min(img.naturalHeight, 256);
   try {

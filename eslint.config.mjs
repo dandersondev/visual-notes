@@ -36,6 +36,23 @@ export default tseslint.config(
       },
     },
     rules: {
+      // Obsidian's prefer-create-el review rule flags native DOM factories in
+      // plugin source. Keep this small guard in the existing lint gate rather
+      // than pulling the whole review plugin into the release dependency tree.
+      'no-restricted-syntax': ['error',
+        {
+          selector: "CallExpression[callee.property.name='createElement']",
+          message: 'Use Obsidian createEl/createDiv/createSpan helpers instead of createElement.',
+        },
+        {
+          selector: "CallExpression[callee.property.name='createElementNS']",
+          message: 'Use Obsidian createSvg instead of createElementNS for SVG nodes.',
+        },
+        {
+          selector: "CallExpression[callee.property.name='createDocumentFragment']",
+          message: 'Use Obsidian createFragment instead of createDocumentFragment.',
+        },
+      ],
       // A leading underscore marks a binding that exists only to be skipped —
       // a positional parameter the callee doesn't need, or a field discarded
       // out of an object rest. The codebase already uses that convention
