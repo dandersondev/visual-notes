@@ -2,6 +2,11 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.13
+
+### Fixed
+- **Dragging a note onto a board created an icon tile.** Markdown notes now embed their content in a live preview that refreshes when the source note changes, including notes dragged from the sidebar on touch devices. Clipped notes retain their title and source metadata.
+
 ## 1.4.12
 
 ### Fixed
