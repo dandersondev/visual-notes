@@ -56,7 +56,7 @@ import {
   KanbanItemColorModal,
 } from './freeform-view-shared';
 import { TEXT_CARD_MIN_FONT, TEXT_CARD_MAX_FONT, TEXT_CARD_DEFAULT_FONT } from './file-types';
-import { isClippedPage, clipMetaFromFrontmatter } from './web-clip-import';
+import { clipMetaFromFrontmatter } from './web-clip-import';
 import type { FreeformRenderer } from './freeform-view';
 
 declare module './freeform-view' {
@@ -832,12 +832,10 @@ export const canvasMethods = {
         };
         this.pushUndo(); this.board.cards.push(card); await this.saveNow();
         this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
-      } else if (ext === 'md' && isClippedPage(this.app, vf)) {
-        // A clipped page dropped onto the canvas becomes the same card the
-        // clip importer would have made, rather than a tile you have to
-        // open to see anything. Identified by the note carrying a source
-        // URL in its properties rather than by which folder it sits in, so
-        // a clip filed away somewhere else still looks like a clip.
+      } else if (ext === 'md') {
+        // Embed the note's contents in place, keeping the source path so
+        // edits to the note refresh the preview. Clipped notes also retain
+        // their source metadata and cover through the same preview card.
         const card: NoteLinkCard = {
           id: crypto.randomUUID(), kind: 'note-link',
           x: this.applySnap(cp.x - NOTELINK_DEFAULT_W / 2), y: this.applySnap(cp.y - NOTELINK_DEFAULT_H / 2),
@@ -847,21 +845,17 @@ export const canvasMethods = {
         };
         this.pushUndo(); this.board.cards.push(card); await this.saveNow();
         this.createCardEl(card); this.selection.select(card.id); this.refreshSelectionVisuals();
-      } else if (ext === 'canvas' || ext === 'md') {
-        // Note / canvas link, dropped the same way native Canvas turns a
-        // dragged file into a file node — here it becomes a tile that
-        // navigates to (or opens) the dropped file. A dropped .canvas
-        // file that's itself a Visual Notes board becomes a "nested
-        // board" tile (kind 'board'); a plain native canvas becomes a
-        // "canvas" tile (kind 'canvas') that just opens it directly.
-        const isBoard = ext === 'canvas' && await isVisualNotesOwnedFile(this.app, vf);
-        const targetKind: TileTarget['kind'] = ext === 'md' ? 'note' : (isBoard ? 'board' : 'canvas');
+      } else if (ext === 'canvas') {
+        // Visual Notes boards become nested-board tiles; native canvases
+        // become canvas tiles that open the original file.
+        const isBoard = await isVisualNotesOwnedFile(this.app, vf);
+        const targetKind: TileTarget['kind'] = isBoard ? 'board' : 'canvas';
         const card: TileCard = {
           id: crypto.randomUUID(), kind: 'tile',
           x: this.applySnap(cp.x - TILE_DEFAULT_W / 2), y: this.applySnap(cp.y - TILE_DEFAULT_H / 2),
           w: TILE_DEFAULT_W, h: TILE_DEFAULT_H, z: this.nextZ(),
           label: vf.basename,
-          icon: targetKind === 'board' ? 'layout-dashboard' : ext === 'md' ? 'file-text' : 'layout-grid',
+          icon: targetKind === 'board' ? 'layout-dashboard' : 'layout-grid',
           color: '#3B82F6',
           target: { kind: targetKind, path: vf.path },
         };

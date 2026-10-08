@@ -89,7 +89,7 @@ The Storyboard remains one normal, movable and resizable JSON Canvas node. Obsid
 - **Minimap** with click-to-jump and zoom-to-fit, collapsible to a floating widget
 - **Board-level search** and a **tag/type filter** panel to narrow a busy board down
 - **Archive** cards you're not using instead of deleting them, and browse/restore from the archive any time
-- Drag notes, canvases, and folders straight from the file explorer onto the canvas to create tiles — dragging another Visual Notes file in creates a nested board, exactly like nesting boards in Milanote
+- Drag notes from the file explorer onto the canvas to embed their content in a live preview that refreshes when the note changes. Canvases and folders create tiles; dragging another Visual Notes file in creates a nested board, exactly like nesting boards in Milanote
 
 ### Locking
 Kanban boards, kanban columns, and generic Columns each have a padlock toggle: a locked container can't have items dragged into or out of it, but its own cards can still be freely dragged and repositioned.

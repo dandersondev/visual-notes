@@ -24,7 +24,7 @@ import { PenOptionsPanel, DEFAULT_PEN_DRAW_OPTIONS, type PenDrawOptions } from '
 import { visualNotesToCanvas, canvasToVisualNotes } from '../src/canvas-format';
 import { fakeApp } from './fake-app';
 import { FakeVault } from './fake-vault';
-import { Platform, Menu } from 'obsidian';
+import { Platform, Menu, MarkdownRenderer } from 'obsidian';
 import type {
   VisualNotesFile, StickyCard, TileCard, TableCard, CommentCard,
   CalloutCard, GroupCard, CalendarCard, ColumnCard, KanbanColumnCard,
@@ -1017,6 +1017,74 @@ describe('UI smoke: keyboard shortcut', () => {
   });
 });
 
+describe('UI smoke: embedding dragged vault notes', () => {
+  it.each(['Notes/Example.md', 'Notes/Example.MD'])('embeds %s at the drop point and preserves the file reference on save', async (path) => {
+    const vault = new FakeVault();
+    const content = '---\ntags: [example]\n---\n# Embedded note\n![[image.png]]';
+    const file = vault.putText(path, content);
+    const { renderer, board, container } = setup([], [], 'bottom-right', vault);
+    const render = vi.spyOn(MarkdownRenderer, 'render');
+    try {
+      (renderer.app as unknown as { dragManager: unknown }).dragManager = {
+        draggable: { type: 'file', file },
+      };
+      const over = new MouseEvent('dragover', { bubbles: true, cancelable: true });
+      Object.defineProperty(over, 'dataTransfer', { value: { types: [], dropEffect: 'none' } });
+      renderer.outer.dispatchEvent(over);
+      expect(over.defaultPrevented).toBe(true);
+
+      renderer.outer.dispatchEvent(new MouseEvent('drop', {
+        bubbles: true, cancelable: true, clientX: 400, clientY: 300,
+      }));
+      await vi.waitFor(() => {
+        expect(container.querySelector('.visual-notes-notelink-preview')?.textContent)
+          .toBe('# Embedded note\n![[image.png]]');
+      });
+      expect(board.cards).toHaveLength(1);
+      const card = board.cards[0];
+      expect(card).toMatchObject({ kind: 'note-link', path, displayMode: 'preview' });
+      expect(card.x! + card.w! / 2).toBe(400);
+      expect(card.y! + card.h! / 2).toBe(300);
+      const preview = container.querySelector('.visual-notes-notelink-preview');
+      expect(render).toHaveBeenCalledWith(renderer.app, '# Embedded note\n![[image.png]]', preview, path, renderer);
+      expect(vault.textAt(path)).toBe(content);
+
+      const saved = visualNotesToCanvas(board);
+      expect(saved.nodes[0]).toMatchObject({ type: 'file', file: path });
+      expect(canvasToVisualNotes(saved).cards[0]).toMatchObject({ kind: 'note-link', path, displayMode: 'preview' });
+      renderer.undo();
+      expect(board.cards).toHaveLength(0);
+      renderer.redo();
+      expect(board.cards[0]).toMatchObject({ kind: 'note-link', path, displayMode: 'preview' });
+    } finally {
+      render.mockRestore();
+    }
+  });
+
+  it('retains clipped-note metadata in the embedded preview', async () => {
+    const vault = new FakeVault();
+    const file = vault.putText('Clips/Article.md', '# Article');
+    const { renderer, board, container } = setup([], [], 'bottom-right', vault);
+    vi.spyOn(renderer.app.metadataCache, 'getFileCache').mockReturnValue({
+      frontmatter: { title: 'Article title', source: 'https://example.com/article' },
+    });
+    await renderer.dropVaultDraggableAt({ type: 'file', file }, 400, 300);
+    expect(board.cards[0]).toMatchObject({
+      kind: 'note-link', path: file.path, displayMode: 'preview', clipSourceUrl: 'https://example.com/article',
+    });
+    expect(container.querySelector('.visual-notes-notelink-title')?.textContent).toBe('Article title');
+    expect(container.querySelector('.visual-notes-notelink-source-domain')?.textContent).toBe('example.com');
+  });
+
+  it('still creates a navigation tile for a native canvas', async () => {
+    const vault = new FakeVault();
+    const file = vault.putText('Canvas.canvas', '{"nodes":[],"edges":[]}');
+    const { renderer, board } = setup([], [], 'bottom-right', vault);
+    await renderer.dropVaultDraggableAt({ type: 'file', file }, 400, 300);
+    expect(board.cards[0]).toMatchObject({ kind: 'tile', target: { kind: 'canvas', path: file.path } });
+  });
+});
+
 // iPad: Obsidian's sidebar drag is its own, driven by touch. It sets
 // dragManager.draggable and paints a filename pill under the finger, but it is
 // not a native drag session, so no dragover/drop pair fires and the drop
@@ -1055,7 +1123,7 @@ describe('UI smoke: catching Obsidian\'s touch drag from the sidebar', () => {
     const { renderer, board } = withDraggable('Note.md');
     await release(renderer);
     expect(board.cards).toHaveLength(1);
-    expect(board.cards[0].kind).toBe('tile');
+    expect(board.cards[0]).toMatchObject({ kind: 'note-link', path: 'Note.md', displayMode: 'preview' });
   });
 
   it('adds a video card the same way — the case that was reported', async () => {

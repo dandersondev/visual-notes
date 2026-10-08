@@ -11,6 +11,7 @@ export function fakeApp(vault: FakeVault = new FakeVault()): App {
     ...base,
     vault: {
       ...base.vault,
+      cachedRead: base.vault.read,
       on: (_event: string, _cb: (...args: unknown[]) => void) => ({}),
       off: () => {},
       getResourcePath: (file: { path: string }) => `fake-resource://${file.path}`,
