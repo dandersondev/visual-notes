@@ -8,6 +8,7 @@ import {
 } from './web-clip-import';
 import { SaveQueue } from './save-queue';
 import { ExplorerDecorator } from './explorer-decor';
+import { DRAWING_COMMANDS } from './drawing-commands';
 
 // Long enough that clipping several pages in a row costs one board write
 // rather than one each, short enough that a single clip still feels immediate.
@@ -675,6 +676,17 @@ export default class VisualNotesPlugin extends Plugin {
         return true;
       },
     });
+
+    for (const command of DRAWING_COMMANDS) {
+      this.addCommand({
+        id: command.id,
+        name: command.name,
+        checkCallback: checking => {
+          const view = this.app.workspace.getActiveViewOfType(VisualNotesView);
+          return view?.runDrawingCommand(command.run, checking) ?? false;
+        },
+      });
+    }
 
     // Settings tab
     this.addSettingTab(new VisualNotesSettingsTab(this.app, this));

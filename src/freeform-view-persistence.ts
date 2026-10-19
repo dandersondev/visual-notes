@@ -60,6 +60,7 @@ export const persistenceMethods = {
   },
 
   undo(this: FreeformRenderer): void {
+    this.activeStrokeAbort?.();
     if (!this.undoStack.length) return;
     this.redoStack.push(this.undoSnapshot());
     this.applyUndoSnapshot(this.undoStack.pop()!);
@@ -67,6 +68,7 @@ export const persistenceMethods = {
   },
 
   redo(this: FreeformRenderer): void {
+    this.activeStrokeAbort?.();
     if (!this.redoStack.length) return;
     this.undoStack.push(this.undoSnapshot());
     this.applyUndoSnapshot(this.redoStack.pop()!);

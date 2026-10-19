@@ -29,6 +29,12 @@ export class VisualNotesView extends FileView {
 
   private renderer: GridRenderer | FreeformRenderer | null = null;
 
+  runDrawingCommand(run: (renderer: FreeformRenderer) => void, checking: boolean): boolean {
+    if (!(this.renderer instanceof FreeformRenderer)) return false;
+    if (!checking) run(this.renderer);
+    return true;
+  }
+
   // Header save indicator — element, its subscription to the board's write
   // queue, and the timer that fades "Saved" back out.
   private saveStatusEl: HTMLElement | null = null;

@@ -31,6 +31,7 @@ import type {
   KanbanBoardCard, DrawingStroke, BookmarkCard, TextCard, Card,
 } from '../src/file-types';
 import { overlaysMethods } from '../src/freeform-view-overlays';
+import { DRAWING_COMMANDS, PEN_COLORS, HIGHLIGHT_COLORS } from '../src/drawing-commands';
 
 function setup(
   cards: VisualNotesFile['cards'], connections: VisualNotesFile['connections'] = [],
@@ -2592,13 +2593,12 @@ describe('UI smoke: pen strokes only merge into one group when drawn close toget
     expect(perpendicularSpread).toBeGreaterThan(3);
   });
 
-  it('pen strokes render at a fixed size regardless of stroke.width (Thin/Medium/Thick no longer changes the shape)', () => {
-    // Deliberate simplification, not a bug — see buildPenOutlineD.
+  it('pen strokes retain their chosen thickness when rendered', () => {
     const { renderer } = setup([]);
     const points = [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 100, y: 0 }];
     const thin: DrawingStroke = { id: 't', groupId: 'g', points, color: '#000', width: 2 };
     const thick: DrawingStroke = { id: 'k', groupId: 'g', points, color: '#000', width: 8 };
-    expect(renderer.buildPenOutlineD(thin)).toBe(renderer.buildPenOutlineD(thick));
+    expect(renderer.buildPenOutlineD(thin)).not.toBe(renderer.buildPenOutlineD(thick));
   });
 
   it('preserves stylus pressure when a drawing is moved or resized', () => {
@@ -2759,6 +2759,157 @@ describe('UI smoke: box-select (marquee) also catches pen/marker strokes', () =>
     expect(renderer.selectedDrawingIds.size).toBe(2);
     expect(renderer.selectedDrawingIds.has(s1.groupId)).toBe(true);
     expect(renderer.selectedDrawingIds.has(s2.groupId)).toBe(true);
+  });
+});
+
+describe('UI smoke: drawing commands and keyboard history', () => {
+  function run(renderer: FreeformRenderer, id: string) {
+    const command = DRAWING_COMMANDS.find(c => c.id === id);
+    expect(command).toBeDefined();
+    command!.run(renderer);
+  }
+
+  function draw(renderer: FreeformRenderer, extra: Partial<PointerEventInit> = {}) {
+    renderer.outer.dispatchEvent(pointer('pointerdown', 0, 0, extra));
+    document.dispatchEvent(pointer('pointermove', 20, 50, extra));
+    document.dispatchEvent(pointer('pointermove', 60, 10, extra));
+    document.dispatchEvent(pointer('pointerup', 100, 0, extra));
+  }
+
+  it('tool commands enter drawing mode and keep the picker and eraser cursor in sync', () => {
+    const { renderer } = setup([]);
+    run(renderer, 'drawing-highlighter');
+    expect(renderer.penModeActive).toBe(true);
+    expect(renderer.penTool).toBe('highlighter');
+    run(renderer, 'drawing-eraser');
+    expect(renderer.outer.hasClass('is-eraser-mode')).toBe(true);
+    run(renderer, 'drawing-pen');
+    expect(renderer.outer.hasClass('is-eraser-mode')).toBe(false);
+    expect(renderer.penColorPicker!.querySelector('[aria-label="Pen"]')!.hasClass('is-selected')).toBe(true);
+    run(renderer, 'toggle-drawing-mode');
+    expect(renderer.penModeActive).toBe(false);
+  });
+
+  it('thickness commands wrap and affect only subsequent strokes', () => {
+    const { renderer, board } = setup([]);
+    run(renderer, 'drawing-width-thin');
+    draw(renderer);
+    run(renderer, 'drawing-previous-width');
+    expect(renderer.currentInkWidth).toBe(8);
+    draw(renderer);
+    run(renderer, 'drawing-next-width');
+    expect(renderer.currentInkWidth).toBe(2);
+    expect(board.drawings.map(s => s.width)).toEqual([2, 8]);
+    expect(renderer.buildPenOutlineD(board.drawings[0])).not.toBe(renderer.buildPenOutlineD(board.drawings[1]));
+  });
+
+  it('cycles pen and highlighter colours independently, in both directions', () => {
+    const { renderer } = setup([]);
+    run(renderer, 'drawing-next-color');
+    expect(renderer.currentInkColor).toBe(PEN_COLORS[1]);
+    run(renderer, 'drawing-highlighter');
+    run(renderer, 'drawing-previous-color');
+    expect(renderer.currentHighlightColor).toBe(HIGHLIGHT_COLORS.at(-1));
+    run(renderer, 'drawing-next-color');
+    expect(renderer.currentHighlightColor).toBe(HIGHLIGHT_COLORS[0]);
+    expect(renderer.currentInkColor).toBe(PEN_COLORS[1]);
+  });
+
+  it.each(['pen', 'highlighter'] as const)('straight-line toggle and Shift produce two-point %s strokes through release', tool => {
+    const { renderer, board } = setup([]);
+    run(renderer, `drawing-${tool}`);
+    run(renderer, 'drawing-straight-lines');
+    draw(renderer);
+    expect(board.drawings[0].points).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }]);
+    expect(renderer.penBanner!.textContent).toContain('straight lines enabled');
+    run(renderer, 'drawing-straight-lines');
+    draw(renderer, { shiftKey: true });
+    expect(board.drawings[1].points).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }]);
+    draw(renderer);
+    expect(board.drawings[2].points.length).toBeGreaterThan(2);
+  });
+
+  it.each(['ctrlKey', 'metaKey'] as const)('%s+Z undoes one grouped stroke after drawing takes focus from an input; Shift+Z redoes', modifier => {
+    const { renderer, board } = setup([]);
+    renderer.enterPenMode();
+    const input = renderer.container.createEl('input');
+    input.focus();
+    draw(renderer);
+    draw(renderer);
+    expect(document.activeElement).toBe(renderer.outer);
+    expect(board.drawings[0].groupId).toBe(board.drawings[1].groupId);
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', [modifier]: true, bubbles: true }));
+    expect(board.drawings).toHaveLength(1);
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Z', shiftKey: true, [modifier]: true, bubbles: true }));
+    expect(board.drawings).toHaveLength(2);
+    expect(renderer.penModeActive).toBe(true);
+  });
+
+  it('leaves undo to text inputs and other panes until drawing resumes', () => {
+    const { renderer, board } = setup([]);
+    renderer.enterPenMode();
+    draw(renderer);
+    const input = renderer.container.createEl('input');
+    input.focus();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+    expect(board.drawings).toHaveLength(1);
+    const otherPane = document.body.createEl('button');
+    otherPane.focus();
+    otherPane.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+    expect(board.drawings).toHaveLength(1);
+  });
+
+  it('undo cancels an unfinished stroke so its release cannot add it back', () => {
+    const { renderer, board } = setup([]);
+    renderer.enterPenMode();
+    draw(renderer);
+    renderer.outer.dispatchEvent(pointer('pointerdown', 0, 0));
+    renderer.undo();
+    document.dispatchEvent(pointer('pointerup', 100, 100));
+    expect(board.drawings).toHaveLength(0);
+    renderer.redo();
+    expect(board.drawings).toHaveLength(1);
+  });
+
+  it('leaves all keys to Settings and hotkey recording while a modal is open', () => {
+    const { renderer, board } = setup([]);
+    renderer.enterPenMode();
+    draw(renderer);
+    const settings = document.body.createDiv('modal-container');
+    const recorder = settings.createDiv('setting-hotkey mod-active');
+    for (const target of [recorder, renderer.outer]) {
+      for (const init of [
+        { key: 'Enter' }, { key: 'Escape' }, { key: 'z', ctrlKey: true },
+        { key: 't' }, { key: ' ', code: 'Space' },
+      ]) {
+        const event = new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true });
+        target.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(false);
+      }
+    }
+    expect(renderer.penModeActive).toBe(true);
+    expect(board.drawings).toHaveLength(1);
+    expect(renderer.pendingTool).toBeNull();
+    expect(renderer.spaceDown).toBe(false);
+    settings.remove();
+    renderer.outer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(renderer.penModeActive).toBe(false);
+  });
+
+  it('does not exit drawing when Enter or Escape is pressed in another pane or input', () => {
+    const { renderer } = setup([]);
+    renderer.enterPenMode();
+    const outside = document.body.createEl('button');
+    const input = renderer.container.createEl('input');
+    for (const target of [outside, input]) {
+      target.focus();
+      for (const key of ['Enter', 'Escape']) {
+        const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+        target.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(false);
+        expect(renderer.penModeActive).toBe(true);
+      }
+    }
   });
 });
 

@@ -6,6 +6,7 @@ import {
 // https://github.com/steveruizok/perfect-freehand
 import { getStroke } from 'perfect-freehand';
 import { EASING_FNS, PenOptionsPanel } from './pen-options-panel';
+import { PEN_COLORS, HIGHLIGHT_COLORS, PEN_WIDTHS } from './drawing-commands';
 import {
   TileCard, TileTarget, NoteLinkCard,
   ImageCard, AudioCard, VideoCard,
@@ -116,6 +117,11 @@ declare module './freeform-view' {
     startInkStroke(startEvent: PointerEvent): void;
     startEraseScrub(startEvent: PointerEvent): void;
     togglePenMode(): void;
+    setPenTool(tool: FreeformRenderer['penTool']): void;
+    setPenWidth(width: number): void;
+    cyclePenWidth(direction: 1 | -1): void;
+    cyclePenColor(direction: 1 | -1): void;
+    toggleStraightLineMode(): void;
     enterPenMode(): void;
     exitPenMode(): void;
     showPenBanner(): void;
@@ -361,16 +367,15 @@ export const canvasMethods = {
     this.outer.addEventListener('touchcancel', (e) => { this.activeTouches = e.touches.length; this.pinchDist = null; });
 
     this.docKeyDown = (e: KeyboardEvent) => {
-      // A Storyboard editor is a modal sub-workspace, not part of the board
-      // beneath it. In particular, Escape belongs to the modal; letting the
-      // board's document-wide pen exit see it first swallowed the close key.
+      // Settings, hotkey recording and modal editors own their keyboard
+      // events, even if focus was left on the board when they opened.
       const keyTarget = e.target as Node | null;
-      if (keyTarget?.instanceOf(Element) && keyTarget.closest('.visual-notes-storyboard-modal')) return;
-      // Pen-mode exit must work document-wide, not just while the canvas
-      // itself has focus — clicking any pen-picker control (color swatch,
-      // width, instrument) moves focus onto that control, and the outer
-      // element's own keydown handler then never hears the Enter/Escape.
-      if (this.penModeActive && (e.key === 'Escape' || e.key === 'Enter')) {
+      if (this.container.ownerDocument.querySelector('.modal-container')) return;
+      const withinBoard = keyTarget?.instanceOf(Node) && this.container.contains(keyTarget);
+      if (!withinBoard) return;
+      // Picker controls are siblings of the canvas under the board container,
+      // so exit works from them too, without taking keys from another pane.
+      if (this.penModeActive && !isTypingElement(activeDocument.activeElement) && (e.key === 'Escape' || e.key === 'Enter')) {
         e.preventDefault(); this.exitPenMode(); return;
       }
       // The board's other shortcuts (undo/redo, delete, select-all,
@@ -387,8 +392,7 @@ export const canvasMethods = {
       // (what the key event actually fired on) rather than
       // activeDocument.activeElement — the two always agree for a real
       // keypress, but target is what's actually available here.
-      const withinBoard = keyTarget?.instanceOf(Node) && this.container.contains(keyTarget);
-      if (withinBoard) this.onKeyDown(e);
+      this.onKeyDown(e);
 
       // The shortcuts below used to carry their own, much stricter gate:
       // `activeDocument.activeElement === this.outer`, i.e. the canvas
@@ -1752,8 +1756,7 @@ export const canvasMethods = {
     el.addEventListener('pointercancel', onUp);
   },
 
-  // Only ever called from docKeyDown, which already handles pen-mode exit
-  // (Escape/Enter) unconditionally before reaching here — see there.
+  // Called from docKeyDown after checking board focus and modal ownership.
   onKeyDown(this: FreeformRenderer, e: KeyboardEvent): void {
     if (isTypingElement(activeDocument.activeElement)) return;
 
@@ -1797,8 +1800,8 @@ export const canvasMethods = {
     if (meta && e.key === 'a') { e.preventDefault(); for (const c of this.board.cards) this.selection.add(c.id); this.refreshSelectionVisuals(); return; }
     if (meta && e.key === 'd') { e.preventDefault(); this.duplicateSelected(); return; }
     if (meta && e.key === 'g' && this.selection.getIds().length > 0) { e.preventDefault(); this.groupSelected(); return; }
-    if (meta && !e.shiftKey && e.key === 'z') { e.preventDefault(); this.undo(); return; }
-    if ((meta && e.shiftKey && e.key === 'z') || (meta && e.key === 'y')) { e.preventDefault(); this.redo(); return; }
+    if (meta && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); this.undo(); return; }
+    if (meta && !e.altKey && ((e.shiftKey && e.key.toLowerCase() === 'z') || e.key.toLowerCase() === 'y')) { e.preventDefault(); this.redo(); return; }
     // Copy/cut the selection. Left un-prevented when nothing is selected so
     // a plain Cmd/Ctrl+C still reaches the OS (e.g. to copy a text
     // selection made elsewhere in the pane). Cmd/Ctrl+V is deliberately NOT
@@ -2173,12 +2176,8 @@ export const canvasMethods = {
   // Pen strokes render as a filled outline (like the highlighter) rather
   // than a constant-width stroked polyline, via perfect-freehand.
   //
-  // Options come from this.penDrawOptions (tuned live via the pen options
-  // panel — see pen-options-panel.ts), not from stroke.width/pressure: this
-  // means the Thin/Medium/Thick picker and real Apple Pencil/Wacom pressure
-  // don't change the rendered shape, and every stroke on the board re-
-  // renders through the same shared, currently-live config — an
-  // intentional simplification, not a bug.
+  // The options panel sets the base size; each stroke retains its chosen
+  // thickness relative to Medium (4), including after saving or resizing.
   buildPenOutlineD(this: FreeformRenderer, stroke: DrawingStroke): string {
     const pts = stroke.points;
     if (pts.length === 0) return '';
@@ -2186,7 +2185,7 @@ export const canvasMethods = {
     const outline = getStroke(
       pts.map(p => [p.x, p.y, p.p ?? 0.5]),
       {
-        size: o.size,
+        size: o.size * stroke.width / 4,
         smoothing: o.smoothing,
         thinning: o.thinning,
         streamline: o.streamline,
@@ -2609,6 +2608,9 @@ export const canvasMethods = {
   },
 
   startInkStroke(this: FreeformRenderer, startEvent: PointerEvent): void {
+    // pointerdown is prevented by the drawing handlers, so the browser will
+    // otherwise leave keyboard focus in the previously edited text/control.
+    this.outer.focus({ preventScroll: true });
     // Every pen-mode pointerdown funnels through here (canvas, cards, kanban
     // items, column children all call it), so the eraser branch lives at the
     // top rather than being re-checked at each call site.
@@ -2741,7 +2743,7 @@ export const canvasMethods = {
       // Same finger-only gate as the start check above: a Pencil stroke
       // shouldn't be discarded because a palm settled onto the glass mid-word.
       if (isTouchStroke && this.activeTouches >= 2) { onCancel(); return; }
-      if (e2.shiftKey) {
+      if (e2.shiftKey || this.straightLineMode) {
         // Ruler mode: while Shift is held the stroke is just anchor →
         // pointer, redrawn live as a perfectly straight segment. Releasing
         // Shift mid-stroke resumes freehand from wherever the line ended.
@@ -2791,7 +2793,9 @@ export const canvasMethods = {
       const cp = screenToCanvas(e2.clientX - rect.left, e2.clientY - rect.top, this.vp);
       const lastP = e2.pressure > 0 && e2.pressure !== 0.5 ? e2.pressure : undefined;
       const last = stroke.points[stroke.points.length - 1];
-      if (!last || Math.hypot(cp.x - last.x, cp.y - last.y) > 0.01) {
+      if (e2.shiftKey || this.straightLineMode) {
+        stroke.points = [{ ...firstPoint }, lastP != null ? { x: cp.x, y: cp.y, p: lastP } : { x: cp.x, y: cp.y }];
+      } else if (!last || Math.hypot(cp.x - last.x, cp.y - last.y) > 0.01) {
         stroke.points.push(lastP != null ? { x: cp.x, y: cp.y, p: lastP } : { x: cp.x, y: cp.y });
       }
       livePath.remove();
@@ -2896,7 +2900,50 @@ export const canvasMethods = {
     if (this.penModeActive) this.exitPenMode(); else this.enterPenMode();
   },
 
+  setPenTool(this: FreeformRenderer, tool: FreeformRenderer['penTool']): void {
+    this.activeStrokeAbort?.();
+    this.penTool = tool;
+    if (!this.penModeActive) this.enterPenMode();
+    else {
+      this.outer.toggleClass('is-eraser-mode', tool === 'eraser');
+      this.showPenColorPicker();
+    }
+    this.outer.focus({ preventScroll: true });
+  },
+
+  setPenWidth(this: FreeformRenderer, width: number): void {
+    this.currentInkWidth = width;
+    if (!this.penModeActive || this.penTool === 'eraser') this.setPenTool('pen');
+    else this.showPenColorPicker();
+    this.outer.focus({ preventScroll: true });
+  },
+
+  cyclePenWidth(this: FreeformRenderer, direction: 1 | -1): void {
+    const index = PEN_WIDTHS.findIndex(([width]) => width === this.currentInkWidth);
+    this.setPenWidth(PEN_WIDTHS[(index + direction + PEN_WIDTHS.length) % PEN_WIDTHS.length][0]);
+  },
+
+  cyclePenColor(this: FreeformRenderer, direction: 1 | -1): void {
+    if (!this.penModeActive || this.penTool === 'eraser') this.setPenTool('pen');
+    const isHl = this.penTool === 'highlighter';
+    const palette = isHl ? HIGHLIGHT_COLORS : PEN_COLORS;
+    const index = palette.indexOf(isHl ? this.currentHighlightColor : this.currentInkColor);
+    const color = palette[(index + direction + palette.length) % palette.length];
+    if (isHl) this.currentHighlightColor = color; else this.currentInkColor = color;
+    this.showPenColorPicker();
+    this.outer.focus({ preventScroll: true });
+  },
+
+  toggleStraightLineMode(this: FreeformRenderer): void {
+    this.straightLineMode = !this.straightLineMode;
+    if (!this.penModeActive || this.penTool === 'eraser') this.setPenTool('pen');
+    else this.showPenColorPicker();
+    this.showPenBanner();
+    this.outer.focus({ preventScroll: true });
+  },
+
   enterPenMode(this: FreeformRenderer): void {
+    if (this.penModeActive) return;
     this.exitConnectMode();
     this.clearPendingTool();
     this.deselectConnection();
@@ -2911,9 +2958,11 @@ export const canvasMethods = {
     this.inkHitPaths.forEach(p => { p.setCssStyles({ pointerEvents: 'none' }); });
     this.showPenColorPicker();
     this.showPenBanner();
+    this.outer.focus({ preventScroll: true });
   },
 
   exitPenMode(this: FreeformRenderer): void {
+    this.activeStrokeAbort?.();
     this.penModeActive = false;
     // Ends the session — the next stroke (from either a fresh enterPenMode
     // or, defensively, a stray call) starts a new group rather than
@@ -2945,7 +2994,7 @@ export const canvasMethods = {
     const banner = this.container.createDiv('visual-notes-pen-banner');
     const iconEl = banner.createDiv('visual-notes-pen-banner-icon');
     setIcon(iconEl, 'pencil');
-    banner.createSpan({ cls: 'visual-notes-pen-banner-text', text: 'Drawing — hold Shift for straight lines' });
+    banner.createSpan({ cls: 'visual-notes-pen-banner-text', text: this.straightLineMode ? 'Drawing — straight lines enabled' : 'Drawing — hold Shift for straight lines' });
     const doneBtn = banner.createDiv('visual-notes-pen-banner-done');
     doneBtn.setText('Done (Enter)');
     doneBtn.addEventListener('click', (e) => { e.stopPropagation(); this.exitPenMode(); });
@@ -2985,11 +3034,7 @@ export const canvasMethods = {
       btn.toggleClass('is-selected', tool === this.penTool);
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.penTool = tool;
-        this.outer.toggleClass('is-eraser-mode', tool === 'eraser');
-        // Rebuild the whole picker: the swatch palette swaps between pen
-        // and highlighter colors, and the eraser has no rows at all.
-        this.showPenColorPicker();
+        this.setPenTool(tool);
       });
     }
     // Advanced perfect-freehand tuning (size/thinning/taper/etc, see
@@ -3009,13 +3054,17 @@ export const canvasMethods = {
     // The eraser has no color or width — just the instrument row.
     if (this.penTool === 'eraser') { this.positionPenPicker(); return; }
 
+    const rulerBtn = toolRow.createDiv('visual-notes-pen-tool-btn');
+    rulerBtn.setAttribute('aria-label', 'Toggle straight lines');
+    rulerBtn.toggleClass('is-selected', this.straightLineMode);
+    setIcon(rulerBtn, 'ruler');
+    rulerBtn.addEventListener('click', e => { e.stopPropagation(); this.toggleStraightLineMode(); });
+
     const isHl = this.penTool === 'highlighter';
     const swatchRow = picker.createDiv('visual-notes-pen-picker-row');
     // First entry matches currentInkColor's own default so the is-selected
     // ring below has something to land on out of the box.
-    const PEN_COLORS = ['var(--text-normal)', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#ffffff'];
     // The colors an actual highlighter set comes in — fluoro yellow first.
-    const HIGHLIGHT_COLORS = ['#ffeb3b', '#b2ff59', '#ff80ab', '#ffb74d', '#81d4fa', '#ce93d8'];
     const palette = isHl ? HIGHLIGHT_COLORS : PEN_COLORS;
     const currentColor = isHl ? this.currentHighlightColor : this.currentInkColor;
     for (const hex of palette) {
@@ -3031,16 +3080,13 @@ export const canvasMethods = {
     }
 
     const widthRow = picker.createDiv('visual-notes-pen-picker-row');
-    const widths: [number, string][] = [[2, 'Thin'], [4, 'Medium'], [8, 'Thick']];
-    for (const [w, label] of widths) {
+    for (const [w, label] of PEN_WIDTHS) {
       const btn = widthRow.createDiv('visual-notes-pen-width-btn');
       btn.setText(label);
       btn.toggleClass('is-selected', w === this.currentInkWidth);
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.currentInkWidth = w;
-        widthRow.querySelectorAll<HTMLElement>('.visual-notes-pen-width-btn').forEach(b => b.removeClass('is-selected'));
-        btn.addClass('is-selected');
+        this.setPenWidth(w);
       });
     }
     this.positionPenPicker();

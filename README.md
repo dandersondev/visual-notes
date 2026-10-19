@@ -163,7 +163,9 @@ Select any text in a sticky note, checklist, kanban item, or image caption to re
 - Nearby strokes drawn in the same session are grouped into one sketch automatically; a doodle started elsewhere on the canvas gets its own group instead of merging in
 - **Multi-select** strokes via marquee or Shift/Ctrl-click, then move, resize, recolor, or delete them as a group
 - **Eraser** detects your swipe crossing a stroke's actual line, not just proximity to its sample points — works cleanly on straight lines, not just wobbly ones
-- Full **undo/redo** support for every drawing action
+- Full **undo/redo** support for every drawing action: **Ctrl/Cmd+Z** removes the last stroke, even within a grouped sketch; **Ctrl/Cmd+Shift+Z** or **Ctrl+Y** redoes it
+- Assign drawing hotkeys in **Settings → Hotkeys** by searching **Visual Notes: Drawing**: toggle drawing mode, select pen/highlighter/eraser, choose Thin/Medium/Thick or cycle thickness, cycle colours in either direction, and toggle straight lines. Use a modifier combination (for example **Ctrl+Alt+P**, or **Cmd+Option+P** on macOS) or a function key: Obsidian's recorder does not accept plain letters or Shift+letter. Commands apply to the active freeform board; selecting a tool enters drawing mode.
+- Hold **Shift** while drawing for a straight line, or enable the **ruler** in the drawing picker to keep straight lines on. Thickness is saved with each stroke; pen and highlighter keep separate colour selections.
 - **iPad + Apple Pencil note:** if quick, small strokes (like a fast "s" or "e") intermittently fail to appear, turn off **Scribble** in iPad Settings → Apple Pencil. Scribble intercepts fast Pencil strokes for handwriting-to-text before they ever reach the canvas — this is a system feature web-based apps cannot override.
 
 ### Asset Management

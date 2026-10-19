@@ -2,6 +2,17 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.14
+
+### Added
+- Assignable drawing commands for toggling drawing mode, selecting pen/highlighter/eraser, choosing or cycling thickness, cycling colours, and toggling straight lines. Find them under **Visual Notes: Drawing** in Obsidian's Hotkeys settings. Use a modifier combination or function key; Obsidian does not record plain-letter hotkeys.
+- A ruler toggle in the drawing picker keeps straight lines enabled without holding Shift.
+
+### Fixed
+- Drawing now takes keyboard focus so **Ctrl/Cmd+Z** reliably removes the last stroke, including individual strokes in a grouped sketch. **Ctrl/Cmd+Shift+Z** correctly redoes strokes, and undo cancels an unfinished stroke.
+- Pen strokes now render with their saved Thin/Medium/Thick setting instead of ignoring it.
+- Straight strokes stay straight through pointer release, and drawing shortcuts leave Settings, modal dialogs, text inputs, and other panes alone.
+
 ## 1.4.13
 
 ### Fixed

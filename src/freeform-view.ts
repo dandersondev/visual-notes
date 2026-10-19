@@ -176,6 +176,7 @@ export class FreeformRenderer extends Component {
   inkPaths = new Map<string, SVGPathElement>();
   inkHitPaths = new Map<string, SVGPathElement>();
   penModeActive = false;
+  straightLineMode = false;
   penToolBtn: HTMLElement | null = null;
   penColorPicker: HTMLElement | null = null;
   penBanner: HTMLElement | null = null;
