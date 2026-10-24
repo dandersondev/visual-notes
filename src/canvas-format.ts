@@ -142,6 +142,36 @@ export interface CanvasData {
   [key: string]: unknown;
 }
 
+export interface CanvasExtras {
+  root: Record<string, unknown>;
+  meta: Record<string, unknown>;
+  nodes: Record<string, Record<string, unknown>>;
+  edges: Record<string, Record<string, unknown>>;
+}
+
+// Preserve fields that our card model has no equivalent for, without keeping
+// stale copies of editable text, positions or deleted nodes. Legacy `ib`
+// markers still migrate to `vn` rather than being reintroduced here.
+function extraFields(source: Record<string, unknown>, projection: object): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(source).filter(([key]) =>
+    key !== META_KEY && key !== LEGACY_META_KEY && !Object.prototype.hasOwnProperty.call(projection, key)));
+}
+
+function canvasExtras(source: CanvasData, projection: CanvasData): CanvasExtras | undefined {
+  const nodes = new Map(projection.nodes.map(node => [node.id, node]));
+  const edges = new Map(projection.edges.map(edge => [edge.id, edge]));
+  const nodeExtras = source.nodes.map(node => [node.id, extraFields(node, nodes.get(node.id) ?? node)] as const)
+    .filter(([, fields]) => Object.keys(fields).length);
+  const edgeExtras = source.edges.map(edge => [edge.id, extraFields(edge, edges.get(edge.id) ?? edge)] as const)
+    .filter(([, fields]) => Object.keys(fields).length);
+  const root = extraFields(source, projection);
+  const stash = readStash(source);
+  const meta = stash && typeof stash === 'object'
+    ? extraFields(stash as Record<string, unknown>, projection.vn ?? {}) : {};
+  if (!Object.keys(root).length && !Object.keys(meta).length && !nodeExtras.length && !edgeExtras.length) return undefined;
+  return { root, meta, nodes: Object.fromEntries(nodeExtras), edges: Object.fromEntries(edgeExtras) };
+}
+
 export const VN_FORMAT_VERSION = 1;
 
 /** The root metadata block — layout, viewport, drawings, archive. */
@@ -261,9 +291,11 @@ export function visualNotesToCanvas(board: VisualNotesFile): CanvasData {
   if (board.foreignEdges) edges.push(...board.foreignEdges);
 
   return {
-    nodes,
-    edges,
+    ...board.canvasExtras?.root,
+    nodes: nodes.map(node => ({ ...board.canvasExtras?.nodes[node.id], ...node })),
+    edges: edges.map(edge => ({ ...board.canvasExtras?.edges[edge.id], ...edge })),
     vn: {
+      ...board.canvasExtras?.meta,
       version: VN_FORMAT_VERSION,
       layout: board.layout,
       dotsHidden: board.dotsHidden,
@@ -348,7 +380,7 @@ function cardToNodes(card: Card): CanvasNode[] {
 
     case 'note-link': {
       const n = card;
-      return [{ ...base, type: 'file', file: n.path, vn: stashable(n) }];
+      return [{ ...base, type: 'file', file: n.path, subpath: n.subpath, vn: stashable(n) }];
     }
 
     case 'bookmark': {
@@ -392,7 +424,7 @@ function cardToNodes(card: Card): CanvasNode[] {
       // native Canvas renders and lets you drag/resize this exactly like
       // one of its own groups, no vn fallback needed for the visuals.
       const g = card;
-      const group: CanvasGroupNode = { ...base, type: 'group', label: g.label, color: g.color, vn: stashable(g) };
+      const group: CanvasGroupNode = { ...base, type: 'group', label: g.label, color: g.color, background: g.background, backgroundStyle: g.backgroundStyle, vn: stashable(g) };
       return [group];
     }
 
@@ -687,7 +719,7 @@ export function canvasToVisualNotes(data: CanvasData): VisualNotesFile {
     connections.push(line);
   }
 
-  return {
+  const board: VisualNotesFile = {
     version: 3,
     layout: meta?.layout ?? 'freeform',
     dotsHidden: meta?.dotsHidden,
@@ -700,6 +732,9 @@ export function canvasToVisualNotes(data: CanvasData): VisualNotesFile {
     foreignNodes: foreignNodes.length ? foreignNodes : undefined,
     foreignEdges: foreignEdges.length ? foreignEdges : undefined,
   };
+  const extras = canvasExtras(data, visualNotesToCanvas(board));
+  if (extras) board.canvasExtras = extras;
+  return board;
 }
 
 function nodeToCard(node: CanvasNode, itemNodes?: CanvasNode[]): Card | null {
@@ -707,6 +742,8 @@ function nodeToCard(node: CanvasNode, itemNodes?: CanvasNode[]): Card | null {
 
   const stash = readStash(node);
   if (stash && typeof stash === 'object') {
+    const kind = (stash as { kind?: unknown }).kind;
+    if (typeof kind !== 'string' || !Object.prototype.hasOwnProperty.call(DEFAULT_SIZE, kind)) return null;
     const card = reconcileNativeEdits({ ...(stash as Card), id: node.id, ...pos }, node);
     if (card.kind === 'kanban-column' && itemNodes) {
       card.items = reconcileKanbanItemsGeneric(card.items, itemNodes, id => id.split('__item__')[1] ?? null);
@@ -742,7 +779,7 @@ function nodeToCard(node: CanvasNode, itemNodes?: CanvasNode[]): Card | null {
         return card;
       }
       if (ext === 'md' || ext === 'canvas') {
-        const card: NoteLinkCard = { kind: 'note-link', id: node.id, ...pos, path, displayMode: 'preview' };
+        const card: NoteLinkCard = { kind: 'note-link', id: node.id, ...pos, path, displayMode: 'preview', ...(node.subpath ? { subpath: node.subpath } : {}) };
         return card;
       }
       // Anything else (PDF, zip, spreadsheet, …) — a generic file card,
@@ -765,7 +802,11 @@ function nodeToCard(node: CanvasNode, itemNodes?: CanvasNode[]): Card | null {
     case 'group': {
       // A group made directly in native Canvas — round-trips as a group
       // card here too, same spatial semantics either way.
-      const card: GroupCard = { kind: 'group', id: node.id, ...pos, label: node.label, color: node.color };
+      const card: GroupCard = {
+        kind: 'group', id: node.id, ...pos, label: node.label, color: node.color,
+        ...(node.background ? { background: node.background } : {}),
+        ...(node.backgroundStyle ? { backgroundStyle: node.backgroundStyle } : {}),
+      };
       return card;
     }
   }
@@ -779,8 +820,8 @@ function reconcileNativeEdits<T extends Card>(card: T, node: CanvasNode): T {
   if (card.kind === 'sticky' && node.type === 'text' && node.text !== card.text) {
     return { ...card, text: node.text };
   }
-  if (card.kind === 'note-link' && node.type === 'file' && node.file !== card.path) {
-    return { ...card, path: node.file };
+  if (card.kind === 'note-link' && node.type === 'file' && (node.file !== card.path || node.subpath !== card.subpath)) {
+    return { ...card, path: node.file, subpath: node.subpath };
   }
   if (card.kind === 'file' && node.type === 'file' && node.file !== card.path) {
     return { ...card, path: node.file };
@@ -792,8 +833,9 @@ function reconcileNativeEdits<T extends Card>(card: T, node: CanvasNode): T {
     // New link means the cached short-link resolution no longer applies.
     return { ...card, url: node.url, resolvedUrl: undefined, resolveFailed: undefined };
   }
-  if (card.kind === 'group' && node.type === 'group' && (node.label !== card.label || node.color !== card.color)) {
-    return { ...card, label: node.label, color: node.color };
+  if (card.kind === 'group' && node.type === 'group' &&
+      (node.label !== card.label || node.color !== card.color || node.background !== card.background || node.backgroundStyle !== card.backgroundStyle)) {
+    return { ...card, label: node.label, color: node.color, background: node.background, backgroundStyle: node.backgroundStyle };
   }
   return card;
 }

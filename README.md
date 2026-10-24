@@ -77,6 +77,7 @@ The Storyboard remains one normal, movable and resizable JSON Canvas node. Obsid
 - Your own templates live in `_Templates/` in the vault (group templates in `_Templates/Groups/`), as plain `.canvas` files you can inspect, rename, edit, or delete directly
 
 ### Freeform Canvas
+- **Convert a native Obsidian canvas** — right-click a `.canvas` file in the file explorer and choose **Convert to Visual Notes canvas**. The source stays untouched and a separate `(Visual Notes).canvas` board is created beside it, then opens fitted to its content. Text, linked files, section references, group backgrounds, positions and connections are carried across; additional native fields are preserved on save. Existing filenames receive a numbered suffix instead of being overwritten.
 - Edge-to-edge canvas, same as Obsidian's native Canvas — no wasted border, with the board-name/back-navigation bar floating as a small pill over the canvas instead of a full-width header
 - A right-click "Add" menu and a left-hand toolbar cover every card type below, grouped into Write / Media & links / Organize
 - A **slash-command quick-add** (`/`) drops a new card of any type at the cursor without leaving the keyboard

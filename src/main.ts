@@ -23,7 +23,7 @@ import { ensureCollaborationIdentity } from './collaboration-identity';
 import { CreateBoardModal, TemplatePickerModal, TemplateChoice } from './create-board-modal';
 import { needsMigration, migrateV1toV2 } from './migration';
 import { relinkAllBoards } from './asset-manager';
-import { isVisualNotesOwnedFile, listTemplates, createBoardFileFromTemplate, installStarterTemplate, TEMPLATES_FOLDER, promptSaveBoardAsTemplate, backupBeforeNativeEdit, NATIVE_BAK_SUFFIX } from './file-io';
+import { isVisualNotesOwnedFile, listTemplates, createBoardFileFromTemplate, installStarterTemplate, TEMPLATES_FOLDER, promptSaveBoardAsTemplate, backupBeforeNativeEdit, NATIVE_BAK_SUFFIX, convertNativeCanvasFile } from './file-io';
 import { STARTER_TEMPLATES } from './starter-templates';
 import { LoopbackCollaborationTransport } from './collaboration-transport';
 import type { CollaborationTransport } from './collaboration-transport';
@@ -581,6 +581,14 @@ export default class VisualNotesPlugin extends Plugin {
     // new board is created directly inside that folder.
     this.registerEvent(
       this.app.workspace.on('file-menu', (menu, file) => {
+        if (file instanceof TFile && file.extension === 'canvas') {
+          menu.addItem(item =>
+            item.setTitle('Convert to Visual Notes canvas').setIcon('layout-grid').onClick(() => {
+              void this.convertCanvasFile(file);
+            })
+          );
+          return;
+        }
         if (!(file instanceof TFolder)) return;
         menu.addItem(item =>
           item.setTitle('New Visual Notes board').setIcon('layout-grid').onClick(() => {
@@ -924,6 +932,23 @@ export default class VisualNotesPlugin extends Plugin {
   }
 
   // ── Canvas leaf takeover ─────────────────────────────────────
+
+  private async convertCanvasFile(file: TFile): Promise<void> {
+    let converted: TFile;
+    try {
+      const result = await convertNativeCanvasFile(this.app, file);
+      converted = result.converted;
+      new Notice(`Visual Notes: Created "${converted.name}". The original canvas is unchanged.`, 8000);
+    } catch (error) {
+      new Notice(`Visual Notes: Could not convert "${file.name}". ${error instanceof Error ? error.message : 'Please try again.'}`, 8000);
+      return;
+    }
+    try {
+      await this.openBoardFile(converted);
+    } catch {
+      new Notice(`Visual Notes: "${converted.path}" was created, but could not be opened. Open it from the file explorer.`, 8000);
+    }
+  }
 
   async toggleNativeView(view: FileView): Promise<void> {
     const file = view.file;

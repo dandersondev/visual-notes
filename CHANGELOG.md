@@ -2,6 +2,16 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.15
+
+### Added
+- Right-click a native Obsidian `.canvas` file and choose **Convert to Visual Notes canvas** to create a separate Visual Notes board beside it. The original stays untouched, with no redundant backup copy. Existing filenames receive numbered suffixes.
+
+### Fixed
+- Converted boards open fitted to their content, including cards at negative coordinates, and wait for hidden panes to become visible before fitting.
+- Conversion preserves text, linked files, note section references, group backgrounds, positions, connections, and additional native canvas fields through subsequent saves.
+- Relative links and embeds in card text resolve from the canvas folder.
+
 ## 1.4.14
 
 ### Added

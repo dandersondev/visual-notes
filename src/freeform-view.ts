@@ -462,6 +462,24 @@ export class FreeformRenderer extends Component {
     this.renderMinimap();
     this.renderSearchWidget();
     this.renderFilterWidget();
+    // Native Canvas has no Visual Notes viewport. Its cards can be anywhere
+    // (often at negative coordinates), so the origin can look completely
+    // empty. Wait for a visible pane before fitting the imported content.
+    if (!this.board.viewport && this.board.cards.length) {
+      const outer = this.outer;
+      const fit = () => {
+        if (outer !== this.outer) return true;
+        const rect = outer.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+        this.zoomToFit();
+        return true;
+      };
+      if (!fit()) {
+        const observer = new ResizeObserver(() => { if (fit()) observer.disconnect(); });
+        observer.observe(outer);
+        this.register(() => observer.disconnect());
+      }
+    }
     this.startCollaboration();
 
     // Re-fetch stale bookmarks — capped so a board with many stale bookmarks

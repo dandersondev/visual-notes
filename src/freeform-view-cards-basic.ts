@@ -210,7 +210,7 @@ export const cardsBasicMethods = {
     if (autoTextColor) textEl.style.color = autoTextColor;
     if (card.textAlign) textEl.style.textAlign = card.textAlign;
     const placeholder = card.blank ? '*Start Typing…*' : '*Double-click to edit…*';
-    void MarkdownRenderer.render(this.app, card.text || placeholder, textEl, '', this);
+    void MarkdownRenderer.render(this.app, card.text || placeholder, textEl, this.file.path, this);
     this.appendResizeHandles(el);
   },
 
@@ -373,7 +373,7 @@ export const cardsBasicMethods = {
       editor.remove(); textEl.show();
       textEl.empty();
       const placeholder = card.blank ? '*Start Typing…*' : '*Double-click to edit…*';
-      void MarkdownRenderer.render(this.app, card.text || placeholder, textEl, '', this);
+      void MarkdownRenderer.render(this.app, card.text || placeholder, textEl, this.file.path, this);
       this.scheduleSave();
     };
     editor.addEventListener('blur', commit);
@@ -930,6 +930,11 @@ export const cardsBasicMethods = {
       const previewEl = el.createDiv('visual-notes-notelink-preview');
       const loadPreview = (f: TFile) => {
         if (!el.contains(previewEl)) return;
+        if (card.subpath) {
+          previewEl.empty();
+          void MarkdownRenderer.render(this.app, `![[${card.path}${card.subpath}]]`, previewEl, this.file.path, this);
+          return;
+        }
         void this.app.vault.cachedRead(f).then(content => {
           if (!el.contains(previewEl)) return;
           previewEl.empty();
@@ -1167,6 +1172,12 @@ export const cardsBasicMethods = {
     // only how solid it is.
     const fill = card.bgColor ?? color;
     el.style.backgroundColor = (card.transparent ?? true) ? `${fill}14` : fill;
+    if (card.background) {
+      el.style.backgroundImage = `url(${JSON.stringify(this.app.vault.adapter.getResourcePath(card.background))})`;
+      el.style.backgroundSize = card.backgroundStyle === 'ratio' ? 'contain' : card.backgroundStyle === 'repeat' ? 'auto' : 'cover';
+      el.style.backgroundRepeat = card.backgroundStyle === 'repeat' ? 'repeat' : 'no-repeat';
+      el.style.backgroundPosition = 'center';
+    }
 
     const label = el.createDiv({ cls: 'visual-notes-group-label', text: card.label || 'Group' });
     label.toggleClass('is-empty', !card.label);

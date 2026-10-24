@@ -27,6 +27,10 @@ export interface VisualNotesFile {
   foreignNodes?: import('./canvas-format').CanvasNode[];
   foreignEdges?: import('./canvas-format').CanvasEdge[];
 
+  // Extra JSON Canvas fields kept at their original root/node/edge locations
+  // on save (section references, group backgrounds, other plugins' data).
+  canvasExtras?: import('./canvas-format').CanvasExtras;
+
   // Runtime-only, never serialized (visualNotesToCanvas doesn't emit it):
   // set by readBoardFile when this board came back off disk with its root
   // metadata stripped by native Canvas, so the view knows to write the root
@@ -424,6 +428,7 @@ export interface VideoCard extends BaseCard {
 export interface NoteLinkCard extends BaseCard {
   kind: 'note-link';
   path: string;
+  subpath?: string;
   displayMode: 'preview' | 'title-only';
 
   // Set only on cards created by the web-clip importer. Declared rather than
@@ -619,6 +624,8 @@ export interface GroupCard extends BaseCard {
   kind: 'group';
   label?: string;
   color?: string;   // accent for border + label chip; default grey
+  background?: string;
+  backgroundStyle?: 'cover' | 'ratio' | 'repeat';
   // Explicit fill, chosen from a theme-aware pastel palette (see BG_COLORS
   // in context-bar.ts). Only rendered while `transparent` is false —
   // stored independently of it so switching transparency back off

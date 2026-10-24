@@ -480,9 +480,32 @@ export async function ensureDir(app: App, dir: string): Promise<void> {
 // Resolves name/folder to a collision-safe path (appending " 1", " 2", …
 // before the extension as needed) and writes board there.
 export async function writeNewBoardFile(app: App, name: string, folder: TFolder | null, board: VisualNotesFile): Promise<TFile> {
+  return writeNewCanvasFile(app, name, folder?.path ?? '', JSON.stringify(visualNotesToCanvas(board), null, 2));
+}
+
+/** Create a separate converted board, leaving the source untouched. */
+export async function convertNativeCanvasFile(app: App, file: TFile): Promise<{ converted: TFile }> {
+  if (file.extension !== 'canvas') throw new Error('Choose a .canvas file to convert.');
+  const raw = await app.vault.read(file);
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object' ||
+      !Array.isArray((parsed as CanvasData).nodes) || !Array.isArray((parsed as CanvasData).edges)) {
+    throw new Error('This file does not contain valid canvas nodes and edges.');
+  }
+  const data = parsed as CanvasData;
+  if (isVisualNotesCanvas(data)) throw new Error('This canvas is already a Visual Notes canvas.');
+
+  // Prepare the conversion first: an invalid canvas must not produce an empty board.
+  const board = canvasToVisualNotes(data);
+  const convertedRaw = JSON.stringify(visualNotesToCanvas(board), null, 2);
+  const folderPath = file.path.slice(0, file.path.lastIndexOf('/') + 1).replace(/\/$/, '');
+  const converted = await writeNewCanvasFile(app, `${file.basename} (Visual Notes)`, folderPath, convertedRaw);
+  return { converted };
+}
+
+async function writeNewCanvasFile(app: App, name: string, folderPath: string, raw: string): Promise<TFile> {
   const safeName = name.trim() || 'New Visual Notes board';
   const baseName = safeName.endsWith('.canvas') ? safeName : `${safeName}.canvas`;
-  const folderPath = folder ? folder.path : '';
 
   let finalPath = folderPath ? `${folderPath}/${baseName}` : baseName;
   let counter = 1;
@@ -493,8 +516,7 @@ export async function writeNewBoardFile(app: App, name: string, folder: TFolder 
     counter++;
   }
 
-  const data = visualNotesToCanvas(board);
-  return app.vault.create(finalPath, JSON.stringify(data, null, 2));
+  return app.vault.create(finalPath, raw);
 }
 
 function emptyBoard(layout: 'grid' | 'freeform'): VisualNotesFile {
