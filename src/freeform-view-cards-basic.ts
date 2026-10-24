@@ -1176,7 +1176,6 @@ export const cardsBasicMethods = {
       el.style.backgroundImage = `url(${JSON.stringify(this.app.vault.adapter.getResourcePath(card.background))})`;
       el.style.backgroundSize = card.backgroundStyle === 'ratio' ? 'contain' : card.backgroundStyle === 'repeat' ? 'auto' : 'cover';
       el.style.backgroundRepeat = card.backgroundStyle === 'repeat' ? 'repeat' : 'no-repeat';
-      el.style.backgroundPosition = 'center';
     }
 
     const label = el.createDiv({ cls: 'visual-notes-group-label', text: card.label || 'Group' });

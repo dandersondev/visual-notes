@@ -2254,6 +2254,7 @@ input.visual-notes-table-date-input {
   border: 2px solid var(--background-modifier-border);
   border-radius: 12px;
   box-shadow: none;
+  background-position: center;
   /* Deliberately no padding/overflow-hidden — this is a spatial frame
      behind its contents, not a content box; contained cards are separate
      sibling elements stacked on top via z-index, not DOM children. */

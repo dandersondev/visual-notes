@@ -2,6 +2,11 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.16
+
+### Fixed
+- Group background images now use the existing CSS class for centering, resolving the `obsidianmd/no-static-styles-assignment` automated review error.
+
 ## 1.4.15
 
 ### Added
