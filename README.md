@@ -10,6 +10,19 @@ A place to think in space rather than in a list, the way you would in Milanote, 
 
 ## Features
 
+- **[Grid Mode](#grid-mode)** ? organise notes, folders and nested boards as customisable icon or cover-image tiles.
+- **[Templates](#templates)** ? start with a bundled layout, save your own boards, or reuse groups of cards.
+- **[Freeform Canvas](#freeform-canvas)** ? arrange and connect cards, nest boards, group and align content, and navigate with search, filters and a minimap. Convert existing Obsidian canvases too.
+- **[Kanban](#kanban) and [Tables](#tables)** ? track projects with columns, due dates and checklists, or organise data with typed columns, sorting and spreadsheet paste.
+- **[Sticky notes, checklists and comments](#sticky-notes-checklists--comments), [Text](#text) and [Callouts](#callouts)** ? capture ideas with [rich-text formatting](#text-formatting), headings, highlights and colour.
+- **[Columns](#columns), group frames and [Locking](#locking)** ? organise related cards and control movement into and out of containers.
+- **[Images, audio and files](#images-audio--files), [Bookmarks](#bookmarks), [Maps](#maps) and [Swatches](#swatches)** ? collect media, documents, web references, locations and colour palettes on one board.
+- **[Drawing](#drawing)** ? sketch and annotate with pressure-sensitive pen and highlighter tools, an eraser and undo/redo.
+- **[Storyboards](#storyboards)** ? plan scenes shot by shot, draw frames, time and play sequences, and export shot lists or contact sheets.
+- **[Experimental collaboration](#experimental-collaboration)** ? optionally work together with live cursors and edits over a private network you control.
+- **[Asset Management](#asset-management)** ? automatically organise imported media and repair broken asset links.
+- **[Keyboard Shortcuts](#keyboard-shortcuts)** ? quickly add cards, edit text, group content and copy selections across boards.
+
 ### Grid Mode
 - **Tiles** that open folders, notes, canvases, kanban files, or nested boards
 - Customise each tile's Lucide icon or emoji, background colour, label, and subtitle
