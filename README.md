@@ -6,61 +6,7 @@ Boards that live in your [Obsidian](https://obsidian.md) vault as real Canvas fi
 
 A place to think in space rather than in a list, the way you would in Milanote, Notion or Trello: plan a project across a wall of sticky notes, keep a reading list as icon tiles, run a kanban board, draw over the top of it, and connect the pieces with labelled lines.
 
-**How is this different from Obsidian's Canvas?** It *is* Canvas — the same spec-compliant `.canvas` file, sitting in your vault, openable in the native view. Visual Notes adds what Canvas leaves out: live collaboration, storyboards, kanban boards, tables, checklists, calendars, columns, group frames, pen and highlighter drawing, and boards that nest inside one another.
-
----
-
-## Experimental collaboration
-
-**Work on the same board at the same time.** Live cursors, live selections, live edits — everyone watching the same canvas change as it changes.
-
-No cloud, no account, and no server but yours. One desktop participant hosts the room from inside Obsidian and everyone else joins with an invitation, over a private network you already control. Nothing is routed through Visual Notes, because there is nothing to route it through.
-
-Everyone keeps an ordinary `.canvas` file in their own vault, so a board is still yours when the session ends and the host goes offline.
-
-Cards, connections, drawings, nested boards, kanban boards, cursors and selections all update across the room. Shared images are saved into each participant's own vault as they arrive, so they still open long after the room has closed. Video is streamed from the host rather than copied, so a shared clip plays during the session but is not kept afterwards.
-
-This is an opt-in experimental feature. It is intended for trusted collaborators using the same Visual Notes version. The host must keep Obsidian running and the computer awake. Mobile devices can join rooms but cannot host them.
-
-**Collaboration needs Obsidian 1.11.4 or newer**, which is the version that added the secure storage Visual Notes keeps the server secret in. Every other feature works on Obsidian 1.7.2 and up as it always has — on an older Obsidian the collaboration setting simply says it is unavailable, and the rest of the plugin, including future updates, is unaffected.
-
-### Network and privacy disclosure
-
-- Visual Notes does **not** operate a collaboration cloud, create user accounts, collect telemetry, or receive room data.
-- Participants provide their own private connection: a trusted physical LAN or a virtual/private network such as Tailscale, ZeroTier, WireGuard, or Headscale. Visual Notes is not affiliated with those providers.
-- Private-network rooms use `ws://` inside that private connection. Do not expose the collaboration port directly to the public internet. Use an encrypted virtual network when collaborating across the internet.
-- The host stores the canonical room snapshots and transferred media beneath `.obsidian/visual-notes-collaboration` in the host vault. Other participants store their normal local Canvas and any downloaded vault assets in their own vaults.
-- The server secret is stored through Obsidian SecretStorage, not in the plugin's `data.json` or a board. A complete invitation contains the private server address, server credential, and room invitation; treat it like a password and share it only with people you trust.
-- Room membership has owner, editor, and viewer roles. Owners can rotate invitations, remove members, export room metadata, clean expired shared media, or delete the hosted room tree without deleting anyone's local Canvas files.
-- Keep backups of important vaults. Experimental collaboration is not a backup service, and a sleeping host, network interruption, firewall rule, or removed virtual-network membership can make a room temporarily unavailable.
-
-Enable it under **Settings → Visual Notes → Experimental collaboration**, choose the private network interface on the host, select **Start hosting**, create a room from the collaboration bar, and share the copied invitation. Joining devices paste that invitation into **Join room**.
-
----
-
-## Storyboards
-
-Plan a scene shot by shot without leaving your vault — draw the frames, time the sequence, play it back, and export a shot list your collaborators can read.
-
-A Storyboard is one canvas card containing an entire visual sequence, so planning a scene does not add dozens of specialist cards to the main board. Add one from the toolbar's **···** menu, the `/` quick-add palette, or the canvas right-click menu, then use its expand button or double-click its preview to enter the focused editor.
-
-- Organise the overall scene into **scene sections**, with a draggable **shot** filmstrip along the bottom
-- Add, duplicate, delete and reorder shots, or move a shot to another scene section; set each shot's number, title, duration and notes
-- Frame shots as **16:9, 4:3, 1:1 or 9:16**, and add a background image from the vault
-- **Import an image folder** to create one named shot per image in a single action
-- Draw directly on a shot with pressure-aware Pen, Marker, Highlighter and textured Pencil presets; adjust size, colour, opacity and smoothing, or disable variable pressure for a uniform line
-- Toggle **onion skinning** to ghost the previous shot beneath the current frame while drawing
-- Select annotations to move, resize, reshape, recolour, copy between shots or delete with Delete/Backspace; selected arrows have endpoint and bend handles using the same trimmed curve geometry as canvas connections
-- Edit selected text in the inspector's Text field; newly placed text focuses that field automatically
-- Storyboard-local **Undo/Redo** treats a complete draw or drag gesture as one action (`⌘/Ctrl Z`, `⌘/Ctrl Shift Z`, or `⌘/Ctrl Y`)
-- See the running shot count and sequence duration, and **play the sequence** using each shot's timing — in the editor, or directly inside the canvas card
-- **Export** a Markdown shot list or the whole Storyboard as a PNG contact sheet. On desktop both download; on iPhone and iPad they are written to an `_Exports` folder in your vault, with a message giving the exact path
-- Switch the card's normal canvas preview between a horizontal filmstrip and a grid, and cycle its shot previews through Small, Medium and Large; shot notes appear beneath their frames as readable descriptions without opening the editor
-- Open the bundled **Screenwriting** template for a working four-shot example
-
-The Storyboard remains one normal, movable and resizable JSON Canvas node. Obsidian's native Canvas shows a readable Markdown shot list, while Visual Notes stores the full scene sections, shots, annotations and shot-relative ink in the node's `vn` metadata.
-
----
+**How is this different from Obsidian's Canvas?** It *is* Canvas — the same spec-compliant `.canvas` file, sitting in your vault, openable in the native view. Visual Notes adds tools for planning and organisation: kanban boards, tables, checklists, calendars, columns, group frames, pen and highlighter drawing, storyboards, and boards that nest inside one another. Optional experimental collaboration lets you work on a board together.
 
 ## Features
 
@@ -168,6 +114,61 @@ Select any text in a sticky note, checklist, kanban item, or image caption to re
 - Assign drawing hotkeys in **Settings → Hotkeys** by searching **Visual Notes: Drawing**: toggle drawing mode, select pen/highlighter/eraser, choose Thin/Medium/Thick or cycle thickness, cycle colours in either direction, and toggle straight lines. Use a modifier combination (for example **Ctrl+Alt+P**, or **Cmd+Option+P** on macOS) or a function key: Obsidian's recorder does not accept plain letters or Shift+letter. Commands apply to the active freeform board; selecting a tool enters drawing mode.
 - Hold **Shift** while drawing for a straight line, or enable the **ruler** in the drawing picker to keep straight lines on. Thickness is saved with each stroke; pen and highlighter keep separate colour selections.
 - **iPad + Apple Pencil note:** if quick, small strokes (like a fast "s" or "e") intermittently fail to appear, turn off **Scribble** in iPad Settings → Apple Pencil. Scribble intercepts fast Pencil strokes for handwriting-to-text before they ever reach the canvas — this is a system feature web-based apps cannot override.
+
+### Storyboards
+
+Plan a scene shot by shot without leaving your vault — draw the frames, time the sequence, play it back, and export a shot list your collaborators can read.
+
+A Storyboard is one canvas card containing an entire visual sequence, so planning a scene does not add dozens of specialist cards to the main board. Add one from the toolbar's **···** menu, the `/` quick-add palette, or the canvas right-click menu, then use its expand button or double-click its preview to enter the focused editor.
+
+- Organise the overall scene into **scene sections**, with a draggable **shot** filmstrip along the bottom
+- Add, duplicate, delete and reorder shots, or move a shot to another scene section; set each shot's number, title, duration and notes
+- Frame shots as **16:9, 4:3, 1:1 or 9:16**, and add a background image from the vault
+- **Import an image folder** to create one named shot per image in a single action
+- Draw directly on a shot with pressure-aware Pen, Marker, Highlighter and textured Pencil presets; adjust size, colour, opacity and smoothing, or disable variable pressure for a uniform line
+- Toggle **onion skinning** to ghost the previous shot beneath the current frame while drawing
+- Select annotations to move, resize, reshape, recolour, copy between shots or delete with Delete/Backspace; selected arrows have endpoint and bend handles using the same trimmed curve geometry as canvas connections
+- Edit selected text in the inspector's Text field; newly placed text focuses that field automatically
+- Storyboard-local **Undo/Redo** treats a complete draw or drag gesture as one action (`⌘/Ctrl Z`, `⌘/Ctrl Shift Z`, or `⌘/Ctrl Y`)
+- See the running shot count and sequence duration, and **play the sequence** using each shot's timing — in the editor, or directly inside the canvas card
+- **Export** a Markdown shot list or the whole Storyboard as a PNG contact sheet. On desktop both download; on iPhone and iPad they are written to an `_Exports` folder in your vault, with a message giving the exact path
+- Switch the card's normal canvas preview between a horizontal filmstrip and a grid, and cycle its shot previews through Small, Medium and Large; shot notes appear beneath their frames as readable descriptions without opening the editor
+- Open the bundled **Screenwriting** template for a working four-shot example
+
+The Storyboard remains one normal, movable and resizable JSON Canvas node. Obsidian's native Canvas shows a readable Markdown shot list, while Visual Notes stores the full scene sections, shots, annotations and shot-relative ink in the node's `vn` metadata.
+
+### Experimental collaboration
+
+Work on the same board with trusted collaborators, with live cursors, selections and edits. This optional feature uses a private network you control and requires Obsidian 1.11.4 or newer; all other features work on Obsidian 1.7.2 and up.
+
+<details>
+<summary>Collaboration setup, requirements and privacy</summary>
+
+**Work on the same board at the same time.** Live cursors, live selections, live edits — everyone watching the same canvas change as it changes.
+
+No cloud, no account, and no server but yours. One desktop participant hosts the room from inside Obsidian and everyone else joins with an invitation, over a private network you already control. Nothing is routed through Visual Notes, because there is nothing to route it through.
+
+Everyone keeps an ordinary `.canvas` file in their own vault, so a board is still yours when the session ends and the host goes offline.
+
+Cards, connections, drawings, nested boards, kanban boards, cursors and selections all update across the room. Shared images are saved into each participant's own vault as they arrive, so they still open long after the room has closed. Video is streamed from the host rather than copied, so a shared clip plays during the session but is not kept afterwards.
+
+This is an opt-in experimental feature. It is intended for trusted collaborators using the same Visual Notes version. The host must keep Obsidian running and the computer awake. Mobile devices can join rooms but cannot host them.
+
+**Collaboration needs Obsidian 1.11.4 or newer**, which is the version that added the secure storage Visual Notes keeps the server secret in. Every other feature works on Obsidian 1.7.2 and up as it always has — on an older Obsidian the collaboration setting simply says it is unavailable, and the rest of the plugin, including future updates, is unaffected.
+
+#### Network and privacy disclosure
+
+- Visual Notes does **not** operate a collaboration cloud, create user accounts, collect telemetry, or receive room data.
+- Participants provide their own private connection: a trusted physical LAN or a virtual/private network such as Tailscale, ZeroTier, WireGuard, or Headscale. Visual Notes is not affiliated with those providers.
+- Private-network rooms use `ws://` inside that private connection. Do not expose the collaboration port directly to the public internet. Use an encrypted virtual network when collaborating across the internet.
+- The host stores the canonical room snapshots and transferred media beneath `.obsidian/visual-notes-collaboration` in the host vault. Other participants store their normal local Canvas and any downloaded vault assets in their own vaults.
+- The server secret is stored through Obsidian SecretStorage, not in the plugin's `data.json` or a board. A complete invitation contains the private server address, server credential, and room invitation; treat it like a password and share it only with people you trust.
+- Room membership has owner, editor, and viewer roles. Owners can rotate invitations, remove members, export room metadata, clean expired shared media, or delete the hosted room tree without deleting anyone's local Canvas files.
+- Keep backups of important vaults. Experimental collaboration is not a backup service, and a sleeping host, network interruption, firewall rule, or removed virtual-network membership can make a room temporarily unavailable.
+
+Enable it under **Settings → Visual Notes → Experimental collaboration**, choose the private network interface on the host, select **Start hosting**, create a room from the collaboration bar, and share the copied invitation. Joining devices paste that invitation into **Join room**.
+
+</details>
 
 ### Asset Management
 - **Auto-sort:** every image, audio clip, video, or document imported into a board is automatically moved to the correct subfolder in the vault root:
