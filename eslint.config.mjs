@@ -40,6 +40,12 @@ export default tseslint.config(
       // plugin source. Keep this small guard in the existing lint gate rather
       // than pulling the whole review plugin into the release dependency tree.
       'no-restricted-syntax': ['error',
+        // Obsidian also rejects quoted ordinary property keys in these
+        // helpers, even when their values are dynamic (1.4.17 review).
+        {
+          selector: "CallExpression[callee.property.name=/^setCss(Props|Styles)$/] > ObjectExpression.arguments > Property[key.type='Literal']:not([key.value=/^--/])",
+          message: 'Use unquoted camelCase keys with setCssStyles for standard styles; reserve quoted setCssProps keys for --custom-properties.',
+        },
         {
           selector: "CallExpression[callee.property.name='createElement']",
           message: 'Use Obsidian createEl/createDiv/createSpan helpers instead of createElement.',

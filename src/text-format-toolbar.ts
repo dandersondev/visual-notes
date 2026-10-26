@@ -364,7 +364,7 @@ export class TextFormatToolbar {
       }
     }
     for (const block of blocks) {
-      block.setCssProps({ 'text-align': align });
+      block.setCssStyles({ textAlign: align });
       for (const child of Array.from(block.querySelectorAll<HTMLElement>('[style*="text-align"]'))) {
         child.style.removeProperty('text-align');
       }

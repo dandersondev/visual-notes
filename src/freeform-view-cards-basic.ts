@@ -229,7 +229,7 @@ export const cardsBasicMethods = {
     // explicit card.textColor for free. Empty when the card uses a theme-driven
     // var() colour, which is deliberate: those pair with the CSS-level default.
     editor.style.color = textEl.style.color;
-    if (card.textAlign) editor.setCssProps({ 'text-align': card.textAlign });
+    if (card.textAlign) editor.setCssStyles({ textAlign: card.textAlign });
     editor.contentEditable = 'true';
     editor.empty();
     if (card.text) editor.appendChild(sanitizeHTMLToDom(textEl.innerHTML));

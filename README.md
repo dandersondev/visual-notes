@@ -331,6 +331,8 @@ npm run generate-benchmarks # realistic large-board and 40-shot Storyboard fixtu
 
 Copy or symlink the folder into `<vault>/.obsidian/plugins/visual-notes/`, then enable the plugin in Obsidian.
 
+Before shipping a change, use the [Obsidian review checklist](docs/obsidian-review-checklist.md) for source warnings, release assets, and scorecard checks.
+
 ---
 
 ## Credits
