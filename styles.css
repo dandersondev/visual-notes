@@ -3589,9 +3589,8 @@ input.visual-notes-table-date-input {
   user-select: none;
 }
 
-/* Bullet toggle carries an icon rather than a letter like its B/I/S/U
-   siblings, so it needs the glyph sized explicitly. */
-.visual-notes-text-fmt-inline-btn.visual-notes-fmt-bullet svg {
+/* Icon controls share the dimensions of the letter controls. */
+.visual-notes-text-fmt-inline-btn svg {
   width: 15px;
   height: 15px;
 }

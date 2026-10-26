@@ -528,7 +528,7 @@ export class ContextBar {
       if (key) btn.style.fontFamily = STICKY_FONT_FAMILIES[key];
       btn.setAttribute('tabindex', '0');
       btn.setAttribute('aria-label', `Font ${label}`);
-      setTooltip(btn, `Font ${label}`);
+      setTooltip(btn, key ? `Obsidian ${label} font. Configure fonts in Settings > Appearance. Text and Interface may use the same font.` : 'Use the default card font. This may match the Obsidian Text or Interface font.');
       if ((current ?? null) === key) btn.addClass('is-active');
       const choose = () => { emitFont(key); this.openFontSub(p, card); };
       btn.addEventListener('click', choose);

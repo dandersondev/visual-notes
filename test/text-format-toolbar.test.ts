@@ -194,6 +194,71 @@ describe('TextFormatToolbar: per-selection text size', () => {
     expect(li.querySelector('span')!.style.fontSize).toBe('3em');
   });
 
+  function swatch(container: HTMLElement, label: string, index: number): HTMLElement {
+    const section = Array.from(container.querySelectorAll<HTMLElement>('.visual-notes-text-fmt-section'))
+      .find(el => el.querySelector('.visual-notes-text-fmt-label')?.textContent === label)!;
+    return section.querySelectorAll<HTMLElement>('.visual-notes-text-fmt-swatch')[index];
+  }
+
+  it('colours every line without wrapping paragraphs in inline elements and fires input', async () => {
+    const { container, editor } = await openToolbarOver('<p>first</p><div><span style="color:blue">second</span></div><div>third</div>');
+    const input = vi.fn();
+    editor.addEventListener('input', input);
+    swatch(container, 'Color', 2).click();
+    expect(editor.querySelector('span > p, span > div')).toBeNull();
+    for (const block of Array.from(editor.children)) {
+      expect(block.querySelector('span')!.style.color).toBe('rgb(239, 68, 68)');
+    }
+    expect(editor.textContent).toBe('firstsecondthird');
+    expect(input).toHaveBeenCalledOnce();
+  });
+
+  it('replaces highlight across Enter-created lines, preserving text colour', async () => {
+    const { container, editor } = await openToolbarOver('first<div><mark style="background:blue"><span style="color:red">second</span></mark></div>');
+    swatch(container, 'Highlight', 4).click();
+    expect(editor.querySelector('mark > div')).toBeNull();
+    expect(Array.from(editor.querySelectorAll('mark')).every(el => el.style.backgroundColor === 'rgb(190, 242, 100)')).toBe(true);
+    expect(editor.querySelector('span')!.style.color).toBe('red');
+    expect(editor.textContent).toBe('firstsecond');
+  });
+
+  it.each(['Color', 'Highlight'])('resets only the selected part of inherited %s', async label => {
+    const { container, editor } = await openToolbarOver(label === 'Color'
+      ? '<span style="color:red">hello world</span>' : '<mark style="background:yellow">hello world</mark>');
+    const text = editor.firstChild!.firstChild!;
+    const range = document.createRange();
+    range.setStart(text, 0); range.setEnd(text, 5);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+    await vi.advanceTimersByTimeAsync(150);
+    swatch(container, label, 1).click();
+    expect(editor.firstChild!.textContent).toBe('hello');
+    expect(editor.querySelector(label === 'Color' ? 'span' : 'mark')!.textContent).toBe(' world');
+    expect(editor.textContent).toBe('hello world');
+  });
+
+  it.each(['left', 'centre', 'right'])('aligns all selected lines %s and stores alignment in the HTML', async label => {
+    const { container, editor } = await openToolbarOver('first<div>second</div><p style="text-align:left">third</p>');
+    container.querySelector<HTMLElement>(`[aria-label="Align ${label}"]`)!.click();
+    expect(editor.children.length).toBe(3);
+    for (const block of Array.from(editor.children) as HTMLElement[]) {
+      expect(block.style.textAlign).toBe(label === 'centre' ? 'center' : label);
+    }
+    expect(editor.textContent).toBe('firstsecondthird');
+  });
+
+  it('aligns a selected list item without changing its neighbours', async () => {
+    const { container, editor } = await openToolbarOver('<ul><li>first</li><li>second</li></ul>');
+    const range = document.createRange();
+    range.selectNodeContents(editor.querySelectorAll('li')[1]);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+    await vi.advanceTimersByTimeAsync(150);
+    container.querySelector<HTMLElement>('[aria-label="Align right"]')!.click();
+    expect(editor.querySelectorAll('li')[0].style.textAlign).toBe('');
+    expect(editor.querySelectorAll('li')[1].style.textAlign).toBe('right');
+  });
+
   it('offers a wide spread of steps, biggest well past the default', async () => {
     const { container } = await openToolbarOver('hello');
     const labels = Array.from(container.querySelectorAll<HTMLElement>('.visual-notes-text-fmt-size-btn'))

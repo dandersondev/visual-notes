@@ -229,6 +229,7 @@ export const cardsBasicMethods = {
     // explicit card.textColor for free. Empty when the card uses a theme-driven
     // var() colour, which is deliberate: those pair with the CSS-level default.
     editor.style.color = textEl.style.color;
+    if (card.textAlign) editor.setCssProps({ 'text-align': card.textAlign });
     editor.contentEditable = 'true';
     editor.empty();
     if (card.text) editor.appendChild(sanitizeHTMLToDom(textEl.innerHTML));
@@ -1438,7 +1439,7 @@ export const cardsBasicMethods = {
       if (e.key === 'Escape') { e.preventDefault(); editor.blur(); }
       e.stopPropagation();
     });
-    new TextFormatToolbar(editor, el, this.container);
+    const fmtToolbar = new TextFormatToolbar(editor, el, this.container);
 
     editor.focus();
     const r = activeDocument.createRange();
@@ -1452,6 +1453,7 @@ export const cardsBasicMethods = {
     editor.addEventListener('blur', () => {
       if (committed) return;
       committed = true;
+      fmtToolbar.destroy();
       card.text = editor.innerHTML;
       // Full re-render rather than swapping the editor out by hand: it rebuilds
       // the body from card.text and re-syncs w/h in one place.

@@ -943,19 +943,11 @@ export const cardsMediaMethods = {
     const dragMgr = (this.app as AppWithPrivateAPIs).dragManager;
     const draggable = dragMgr?.draggable;
     if (draggable?.type === 'folder' && draggable.file instanceof TFolder) return true;
-    if (draggable?.type !== 'file' || !(draggable.file instanceof TFile)) return false;
-    const ext = draggable.file.extension.toLowerCase();
-    // Every extension the drop handler can actually build a card from has to
-    // be listed here too. This gate runs on dragover, and returning false
-    // means preventDefault is never called — at which point the browser
-    // refuses the drag outright and no drop event is fired at all, so the
-    // matching branch in the drop handler is unreachable rather than merely
-    // unused. Video was added to the drop handler in 1.1.27 and missed here,
-    // which is why a video dragged from the sidebar did nothing while the
-    // same file dropped from the OS worked: an OS drag matches the 'Files'
-    // check above and never reaches this list.
-    return IMAGE_EXTS.includes(ext) || AUDIO_EXTS.includes(ext) || VIDEO_EXTS.includes(ext)
-      || ext === 'canvas' || ext === 'md';
+    // dropVaultDraggableAt handles every vault file: media and notes have
+    // dedicated cards, and PDFs/other attachments use its file-card fallback.
+    // An extension allowlist here prevented native drops from ever reaching
+    // that fallback (issue #39), although OS file drops worked via 'Files'.
+    return draggable?.type === 'file' && draggable.file instanceof TFile;
   },
 
   async handleDroppedAudio(this: FreeformRenderer, file: File, x: number, y: number): Promise<void> {

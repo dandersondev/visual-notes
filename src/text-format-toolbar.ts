@@ -1,9 +1,8 @@
 // Storage format:
 // Text colour  → <span style="color:#hex">…</span>
 // Highlight    → <mark style="background:#hex">…</mark>
-// These are the only two HTML tags this toolbar writes. They live inline in the sticky
-// card's HTML field. Obsidian's MarkdownRenderer passes inline HTML through on render.
-// Same-type wrappers are always flattened before a new one is applied (no nesting).
+// Formatting stays within text runs; alignment is stored on block elements.
+// Obsidian's MarkdownRenderer passes this HTML through on render.
 
 import { setIcon, Platform } from 'obsidian';
 import { hoistListItemSizes } from './bullet-list';
@@ -53,7 +52,7 @@ export class TextFormatToolbar {
     this.onOutside   = (e: MouseEvent) => {
       if (this.popover && !this.popover.contains(e.target as Node)) this.dismiss();
     };
-    activeDocument.addEventListener('selectionchange', this.onSelChange);
+    this.editor.ownerDocument.addEventListener('selectionchange', this.onSelChange);
   }
 
   // ── Selection check ────────────────────────────────────────────
@@ -66,10 +65,10 @@ export class TextFormatToolbar {
     // desktop are unaffected; a phone-appropriate replacement (routed
     // through the bottom context bar) is a separate follow-up.
     if (Platform.isPhone) return;
-    if (this.debounce !== null) window.clearTimeout(this.debounce);
-    this.debounce = window.setTimeout(() => {
+    if (this.debounce !== null) this.editor.ownerDocument.defaultView!.clearTimeout(this.debounce);
+    this.debounce = this.editor.ownerDocument.defaultView!.setTimeout(() => {
       this.debounce = null;
-      const sel = window.getSelection();
+      const sel = this.editor.ownerDocument.defaultView!.getSelection();
       if (!sel || sel.isCollapsed) { this.dismiss(); return; }
       if (!this.editor.contains(sel.anchorNode) || !this.editor.contains(sel.focusNode)) {
         this.dismiss(); return;
@@ -86,6 +85,7 @@ export class TextFormatToolbar {
     pop.addEventListener('pointerdown', e => e.preventDefault()); // keep editor focus + selection
 
     this.buildFormatRow(pop);
+    this.buildAlignmentRow(pop);
     pop.createDiv('visual-notes-text-fmt-divider');
     this.buildSizeSection(pop);
     pop.createDiv('visual-notes-text-fmt-divider');
@@ -94,7 +94,7 @@ export class TextFormatToolbar {
     this.buildSection(pop, 'Highlight', HIGHLIGHT_COLORS, hex => this.applyHighlight(hex), 'highlight');
 
     this.position(pop);
-    window.setTimeout(() => activeDocument.addEventListener('mousedown', this.onOutside), 0);
+    this.editor.ownerDocument.defaultView!.setTimeout(() => this.editor.ownerDocument.addEventListener('mousedown', this.onOutside), 0);
   }
 
   private buildFormatRow(parent: HTMLElement): void {
@@ -134,7 +134,7 @@ export class TextFormatToolbar {
 
   public applyInlineTag(tag: string): void {
     this.restoreSelection();
-    const sel = window.getSelection();
+    const sel = this.editor.ownerDocument.defaultView!.getSelection();
     if (!sel || !sel.rangeCount) return;
     const range = sel.getRangeAt(0);
     if (range.collapsed) return;
@@ -151,7 +151,7 @@ export class TextFormatToolbar {
       while (existingWrapper.firstChild) parent.insertBefore(existingWrapper.firstChild, existingWrapper);
       existingWrapper.remove();
       if (children.length > 0 && parent.contains(children[0]) && parent.contains(children[children.length - 1])) {
-        const nr = activeDocument.createRange();
+        const nr = this.editor.ownerDocument.createRange();
         nr.setStartBefore(children[0]);
         nr.setEndAfter(children[children.length - 1]);
         sel.removeAllRanges(); sel.addRange(nr);
@@ -161,7 +161,7 @@ export class TextFormatToolbar {
     } else {
       const wrapper = createEl(tag as keyof HTMLElementTagNameMap);
       this.wrapRange(range, wrapper);
-      const nr = activeDocument.createRange();
+      const nr = this.editor.ownerDocument.createRange();
       nr.selectNodeContents(wrapper);
       sel.removeAllRanges(); sel.addRange(nr);
     }
@@ -186,7 +186,7 @@ export class TextFormatToolbar {
     const colorInput = customSw.createEl('input');
     colorInput.type = 'color';
     colorInput.className = 'visual-notes-text-fmt-custom-input';
-    colorInput.addEventListener('pointerdown', e => e.stopPropagation());
+    colorInput.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); });
     colorInput.addEventListener('change', () => { apply(colorInput.value); this.dismiss(); });
     customSw.addEventListener('click', () => { this.restoreSelection(); colorInput.click(); });
 
@@ -212,7 +212,7 @@ export class TextFormatToolbar {
 
   private position(pop: HTMLElement): void {
     pop.addClass('visual-notes-invisible');
-    window.requestAnimationFrame(() => {
+    this.editor.ownerDocument.defaultView!.requestAnimationFrame(() => {
       if (!this.popover || !this.savedRange) return;
 
       // Anchored to the card, not to the selection. Anchoring to the selection
@@ -269,33 +269,107 @@ export class TextFormatToolbar {
   // span solely once nothing else is left on it.
   private applyInlineStyleProp(prop: 'color' | 'font-size', value: string | null): void {
     this.restoreSelection();
-    const sel = window.getSelection();
+    const sel = this.editor.ownerDocument.defaultView!.getSelection();
     if (!sel || !sel.rangeCount) return;
     const range = sel.getRangeAt(0);
     if (range.collapsed) return;
 
-    const tmp = createDiv();
-    tmp.appendChild(range.extractContents());
-    for (const el of Array.from(tmp.querySelectorAll('span'))) {
-      el.style.removeProperty(prop);
-      if (!el.getAttribute('style') && !el.className) {
-        el.replaceWith(...Array.from(el.childNodes));
+    this.formatTextNodes(range, prop, value);
+    if (prop === 'font-size') hoistListItemSizes(this.editor);
+    this.finishFormatting();
+  }
+
+  // Work on individual text runs, never put an inline wrapper around blocks.
+  // Split inline ancestors so resetting part of a coloured/highlighted run
+  // also removes inherited formatting without changing its unselected text.
+  private formatTextNodes(range: Range, prop: string, value: string | null): void {
+    const walker = this.editor.ownerDocument.createTreeWalker(this.editor, NodeFilter.SHOW_TEXT);
+    const runs: { node: Text; start: number; end: number }[] = [];
+    let current: Node | null;
+    while ((current = walker.nextNode())) {
+      const node = current as Text;
+      if (!range.intersectsNode(node)) continue;
+      const start = node === range.startContainer ? range.startOffset : 0;
+      const end = node === range.endContainer ? range.endOffset : node.length;
+      if (end > start) runs.push({ node, start, end });
+    }
+    for (const { node, start, end } of runs.reverse()) {
+      if (end < node.length) node.splitText(end);
+      const selected = start ? node.splitText(start) : node;
+      let branch: Node = selected;
+      let parent = branch.parentElement;
+      while (parent && parent !== this.editor && /^(SPAN|MARK|STRONG|B|EM|I|S|STRIKE|U|A|CODE)$/.test(parent.tagName)) {
+        const before = parent.cloneNode(false) as HTMLElement;
+        const after = parent.cloneNode(false) as HTMLElement;
+        while (parent.firstChild !== branch) before.appendChild(parent.firstChild!);
+        while (branch.nextSibling) after.appendChild(branch.nextSibling);
+        if (before.hasChildNodes()) parent.before(before);
+        if (after.hasChildNodes()) parent.after(after);
+        parent.style.removeProperty(prop);
+        if (prop === 'background-color') parent.style.removeProperty('background');
+        const next = parent.parentElement;
+        if ((parent.tagName === 'SPAN' && !parent.getAttribute('style') && !parent.className)
+          || (prop === 'background-color' && parent.tagName === 'MARK')) {
+          parent.replaceWith(...Array.from(parent.childNodes));
+        } else branch = parent;
+        parent = next;
+      }
+      if (value !== null) {
+        const wrapper = prop === 'background-color' ? createEl('mark') : createSpan();
+        wrapper.setCssProps({ [prop]: value });
+        selected.before(wrapper);
+        wrapper.appendChild(selected);
       }
     }
+  }
 
-    if (value === null) {
-      const frag = createFragment();
-      while (tmp.firstChild) frag.appendChild(tmp.firstChild);
-      range.insertNode(frag);
-    } else {
-      const span = createSpan();
-      span.style.setProperty(prop, value);
-      while (tmp.firstChild) span.appendChild(tmp.firstChild);
-      range.insertNode(span);
-      span.parentElement?.normalize();
+  private finishFormatting(): void {
+    this.savedRange = null;
+    this.editor.ownerDocument.defaultView?.getSelection()?.removeAllRanges();
+    this.editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
+  }
+
+  private buildAlignmentRow(parent: HTMLElement): void {
+    const row = parent.createDiv('visual-notes-text-fmt-inline-row');
+    for (const [align, label] of [['left', 'Left'], ['center', 'Centre'], ['right', 'Right']] as const) {
+      const btn = row.createEl('button', { cls: 'visual-notes-text-fmt-inline-btn', attr: { type: 'button', 'aria-label': `Align ${label.toLowerCase()}`, title: `Align ${label.toLowerCase()}` } });
+      setIcon(btn, `align-${align}`);
+      btn.addEventListener('click', () => { this.applyAlignment(align); this.dismiss(); });
     }
-    if (prop === 'font-size') hoistListItemSizes(this.editor);
-    sel.removeAllRanges();
+  }
+
+  private applyAlignment(align: 'left' | 'center' | 'right'): void {
+    this.restoreSelection();
+    const selection = this.editor.ownerDocument.defaultView?.getSelection();
+    if (!selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    if (!this.editor.contains(range.commonAncestorContainer)) return;
+    // Group bare inline runs into blocks, leaving existing paragraphs/lists intact.
+    const touched = new Set(Array.from(this.editor.childNodes).filter(node => range.intersectsNode(node)));
+    const blockSelector = 'div,p,li,h1,h2,h3,h4,h5,h6,blockquote';
+    const blocks = new Set(Array.from(this.editor.querySelectorAll<HTMLElement>(blockSelector))
+      .filter(block => !block.querySelector(blockSelector) && range.intersectsNode(block)));
+    let inline: HTMLElement | null = null;
+    for (const node of Array.from(this.editor.childNodes)) {
+      if (node.nodeType === Node.ELEMENT_NODE && /^(DIV|P|UL|OL|H[1-6]|BLOCKQUOTE)$/.test((node as Element).tagName)) {
+        inline = null;
+
+      } else {
+        if (!inline) {
+          inline = createDiv();
+          node.before(inline);
+        }
+        inline.appendChild(node);
+        if (touched.has(node)) blocks.add(inline);
+      }
+    }
+    for (const block of blocks) {
+      block.setCssProps({ 'text-align': align });
+      for (const child of Array.from(block.querySelectorAll<HTMLElement>('[style*="text-align"]'))) {
+        child.style.removeProperty('text-align');
+      }
+    }
+    this.finishFormatting();
   }
 
   // A bullet marker is sized by its <li>, not by anything nested inside it,
@@ -349,18 +423,17 @@ export class TextFormatToolbar {
 
   private applyHighlight(hex: string | null): void {
     this.restoreSelection();
-    const sel = window.getSelection();
+    const sel = this.editor.ownerDocument.defaultView!.getSelection();
     if (!sel || !sel.rangeCount) return;
     const range = sel.getRangeAt(0);
     if (range.collapsed) return;
-    if (hex === null) this.unwrapRange(range, 'mark');
-    else { const m = createEl('mark'); m.style.background = hex; this.wrapRange(range, m); }
-    sel.removeAllRanges();
+    this.formatTextNodes(range, 'background-color', hex);
+    this.finishFormatting();
   }
 
   private restoreSelection(): void {
     if (!this.savedRange) return;
-    const sel = window.getSelection();
+    const sel = this.editor.ownerDocument.defaultView!.getSelection();
     if (!sel) return;
     sel.removeAllRanges();
     sel.addRange(this.savedRange.cloneRange());
@@ -395,12 +468,12 @@ export class TextFormatToolbar {
   dismiss(): void {
     this.popover?.remove();
     this.popover = null;
-    activeDocument.removeEventListener('mousedown', this.onOutside);
+    this.editor.ownerDocument.removeEventListener('mousedown', this.onOutside);
   }
 
   destroy(): void {
-    if (this.debounce !== null) window.clearTimeout(this.debounce);
+    if (this.debounce !== null) this.editor.ownerDocument.defaultView!.clearTimeout(this.debounce);
     this.dismiss();
-    activeDocument.removeEventListener('selectionchange', this.onSelChange);
+    this.editor.ownerDocument.removeEventListener('selectionchange', this.onSelChange);
   }
 }

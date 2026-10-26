@@ -24,7 +24,7 @@ import { PenOptionsPanel, DEFAULT_PEN_DRAW_OPTIONS, type PenDrawOptions } from '
 import { visualNotesToCanvas, canvasToVisualNotes } from '../src/canvas-format';
 import { fakeApp } from './fake-app';
 import { FakeVault } from './fake-vault';
-import { Platform, Menu, MarkdownRenderer } from 'obsidian';
+import { Platform, Menu, MarkdownRenderer, TFile } from 'obsidian';
 import type {
   VisualNotesFile, StickyCard, TileCard, TableCard, CommentCard,
   CalloutCard, GroupCard, CalendarCard, ColumnCard, KanbanColumnCard,
@@ -1083,6 +1083,41 @@ describe('UI smoke: embedding dragged vault notes', () => {
     const { renderer, board } = setup([], [], 'bottom-right', vault);
     await renderer.dropVaultDraggableAt({ type: 'file', file }, 400, 300);
     expect(board.cards[0]).toMatchObject({ kind: 'tile', target: { kind: 'canvas', path: file.path } });
+  });
+});
+
+// Issue #39: the native dragover gate must admit PDFs before a browser
+// will deliver the drop. Calling dropVaultDraggableAt alone missed this bug.
+describe('UI smoke: PDF drops from the Obsidian file explorer', () => {
+  it.each(['Docs/report.pdf', 'Docs/REPORT.PDF'])('accepts %s and creates a PDF preview frame', async path => {
+    const vault = new FakeVault();
+    const file = vault.putText(path, '%PDF-1.7');
+    const { renderer, board, container } = setup([], [], 'bottom-right', vault);
+    (renderer.app as unknown as { dragManager: unknown }).dragManager = {
+      draggable: { type: 'file', file },
+    };
+    const dataTransfer = { types: [], files: [], getData: () => '', dropEffect: 'none' };
+    const over = Object.assign(new Event('dragover', { bubbles: true, cancelable: true }), { dataTransfer });
+    renderer.outer.dispatchEvent(over);
+    expect(over.defaultPrevented).toBe(true);
+    expect(dataTransfer.dropEffect).toBe('copy');
+    const drop = Object.assign(new Event('drop', { bubbles: true, cancelable: true }), {
+      dataTransfer, clientX: 400, clientY: 300,
+    });
+    renderer.outer.dispatchEvent(drop);
+    await vi.waitFor(() => {
+      expect(board.cards).toHaveLength(1);
+      const card = board.cards[0];
+      expect(card.kind).toBe('file');
+      const iframe = container.querySelector<HTMLIFrameElement>('.visual-notes-file-iframe');
+      expect(iframe).not.toBeNull();
+      if (card.kind === 'file') {
+        const saved = renderer.app.vault.getAbstractFileByPath(card.path);
+        if (!(saved instanceof TFile)) throw new Error('Dropped PDF was not saved in the vault');
+        expect(iframe!.getAttribute('src')).toBe(`${renderer.app.vault.getResourcePath(saved)}#toolbar=0`);
+      }
+      expect(container.querySelector('.visual-notes-file-tile')).toBeNull();
+    });
   });
 });
 
@@ -4020,9 +4055,10 @@ describe('UI smoke: video cards', () => {
       expect(accepts('board.canvas')).toBe(true);
     });
 
-    it('still refuses what it has no card for', () => {
-      expect(accepts('archive.zip')).toBe(false);
-    });
+    it.each(['report.pdf', 'REPORT.PDF', 'archive.zip', 'table.xlsx'])(
+      'permits %s, which the drop handler supports as a file card', name => {
+        expect(accepts(name)).toBe(true);
+      });
   });
 
   describe('formatVideoTime', () => {
