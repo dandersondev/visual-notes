@@ -13,6 +13,7 @@ A place to think in space rather than in a list, the way you would in Milanote, 
 - **[Grid Mode](#grid-mode)**  organise notes, folders and nested boards as customisable icon or cover-image tiles.
 - **[Templates](#templates)**  start with a bundled layout, save your own boards, or reuse groups of cards.
 - **[Freeform Canvas](#freeform-canvas)**  arrange and connect cards, nest boards, group and align content, and navigate with search, filters and a minimap. Convert existing Obsidian canvases too.
+- **[Edit Markdown notes within the canvas](#freeform-canvas)**  embed vault notes, edit their Markdown on the board, and save changes directly to the original note.
 - **[Kanban](#kanban) and [Tables](#tables)**  track projects with columns, due dates and checklists, or organise data with typed columns, sorting and spreadsheet paste.
 - **[Sticky notes, checklists and comments](#sticky-notes-checklists--comments), [Text](#text) and [Callouts](#callouts)**  capture ideas with [rich-text formatting](#text-formatting), headings, highlights and colour.
 - **[Columns](#columns), group frames and [Locking](#locking)**  organise related cards and control movement into and out of containers.
@@ -50,7 +51,7 @@ A place to think in space rather than in a list, the way you would in Milanote, 
 - **Board-level search** and a **tag/type filter** panel to narrow a busy board down
 - **Archive** cards you're not using instead of deleting them, and browse/restore from the archive any time
 - Drag notes from the file explorer onto the canvas to embed their content in a live preview that refreshes when the note changes. Canvases and folders create tiles; dragging another Visual Notes file in creates a nested board, exactly like nesting boards in Milanote
-- Double-click a note preview or click its pencil button to edit Markdown directly on the board. **Save** (or **Ctrl/Cmd+Enter**) updates the original vault note; **Cancel** leaves it unchanged. The open-in-tab button opens Obsidian's full note editor. Section previews edit the entire source note, including properties.
+- **Edit Markdown notes within the canvas** — double-click a note preview or click its pencil button to edit directly on the board. **Save** (or **Ctrl/Cmd+Enter**) updates the original vault note; **Cancel** leaves it unchanged. The open-in-tab button opens Obsidian's full note editor. Section previews edit the entire source note, including properties.
 
 ### Locking
 Kanban boards, kanban columns, and generic Columns each have a padlock toggle: a locked container can't have items dragged into or out of it, but its own cards can still be freely dragged and repositioned.
