@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.21
+
+### Added
+- Edit embedded Markdown notes directly on the board: double-click a note preview or click its pencil button. Save or Ctrl/Cmd+Enter updates the original vault note; Cancel leaves it unchanged. An open-in-tab button still opens Obsidian's full editor.
+- Inline note editing preserves properties and file references, keeps drafts through card refreshes, and refuses to overwrite changes made elsewhere. Failed saves keep the draft available to retry or copy. Section previews clearly indicate that editing covers the entire source note.
+
 ## 1.4.20
 
 ### Added
