@@ -212,6 +212,24 @@ export const cardsBasicMethods = {
     const placeholder = card.blank ? '*Start Typing…*' : '*Double-click to edit…*';
     void MarkdownRenderer.render(this.app, card.text || placeholder, textEl, this.file.path, this);
     this.appendResizeHandles(el);
+    this.stickyCardResizeObs.get(card.id)?.disconnect();
+    this.stickyCardResizeObs.delete(card.id);
+    if (!card.blank) {
+      // Pins use percentages of the rendered card, but connection paths read
+      // card.h. A new sticky has no h at all and used the 160px tile fallback,
+      // leaving both the preview and final arrow below a short sticky's pins.
+      // offsetHeight is in canvas pixels, unaffected by pan/zoom or drag tilt.
+      const syncHeight = () => {
+        const height = el.offsetHeight;
+        if (height <= 0 || height === card.h) return;
+        card.h = height;
+        this.updateConnectionsForCard(card.id);
+      };
+      syncHeight();
+      const observer = new ResizeObserver(syncHeight);
+      observer.observe(el, { box: 'border-box' });
+      this.stickyCardResizeObs.set(card.id, observer);
+    }
   },
 
   editStickyInline(this: FreeformRenderer, el: HTMLElement, card: StickyCard): void {

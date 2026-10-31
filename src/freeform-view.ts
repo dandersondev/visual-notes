@@ -232,6 +232,8 @@ export class FreeformRenderer extends Component {
   // survive; this catches the real size the moment it exists, and again if
   // font loading or a theme change alters it.
   textCardResizeObs = new Map<string, ResizeObserver>();
+  // Regular stickies size to their text; keep connection geometry in step.
+  stickyCardResizeObs = new Map<string, ResizeObserver>();
   // Every permanent card removal (delete, archive, trash-drop, absorb into a
   // column) must go through here so a table's zoom-layer ResizeObserver is
   // disconnected instead of leaking on the now-detached DOM node forever.
@@ -514,6 +516,8 @@ export class FreeformRenderer extends Component {
     this.tableGridResizeObs.clear();
     for (const ro of this.textCardResizeObs.values()) ro.disconnect();
     this.textCardResizeObs.clear();
+    for (const ro of this.stickyCardResizeObs.values()) ro.disconnect();
+    this.stickyCardResizeObs.clear();
     this.contextBar?.destroy();
     if (needsFlush) await this.saveNow();
     this.unload();

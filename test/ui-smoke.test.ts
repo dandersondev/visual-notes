@@ -69,6 +69,59 @@ function setup(
 // file their vault had already moved, and threw. Five unhandled rejections in
 // CI, from tests that themselves passed.
 const live: FreeformRenderer[] = [];
+
+describe('UI smoke: sticky connection anchors follow content height', () => {
+  const observers = new Map<Element, { resize: () => void; disconnect: ReturnType<typeof vi.fn> }>();
+  beforeEach(() => {
+    observers.clear();
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private callback: () => void) {}
+      disconnect = vi.fn();
+      observe(el: Element) { observers.set(el, { resize: this.callback, disconnect: this.disconnect }); }
+      unobserve() {}
+    });
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('aligns pinned arrows and their preview with measured heights, then follows text growth', () => {
+    const cards: StickyCard[] = [
+      { id: 'a', kind: 'sticky', x: 100, y: 100, w: 180, text: '', color: '#fff' },
+      { id: 'b', kind: 'sticky', x: 500, y: 300, w: 180, h: 240, text: '', color: '#fff' },
+    ];
+    const { renderer } = setup(cards, [{
+      id: 'edge', fromCardId: 'a', toCardId: 'b', routing: 'straight',
+      fromAnchor: { side: 'e', t: 0.5 }, toAnchor: { side: 'w', t: 0.5 },
+    }]);
+    renderer.vp = { x: 200, y: -100, zoom: 1.5 };
+    const a = renderer.cardEls.get('a')!;
+    const b = renderer.cardEls.get('b')!;
+    Object.defineProperty(a, 'offsetHeight', { configurable: true, value: 46 });
+    Object.defineProperty(b, 'offsetHeight', { configurable: true, value: 46 });
+    expect(observers.has(a)).toBe(true);
+    observers.get(a)!.resize();
+    observers.get(b)!.resize();
+    expect(renderer.connectionHitPaths.get('edge')!.getAttribute('d')).toBe('M 280 123 L 500 323');
+    // Preview geometry uses the same endpoint rectangles.
+    expect(renderer.getCardRect('a')!.h).toBe(46);
+    Object.defineProperty(b, 'offsetHeight', { configurable: true, value: 110 });
+    observers.get(b)!.resize();
+    expect(renderer.connectionHitPaths.get('edge')!.getAttribute('d')).toBe('M 280 123 L 500 355');
+    // A hidden/unlaid-out card must retain its last usable height.
+    Object.defineProperty(b, 'offsetHeight', { configurable: true, value: 0 });
+    observers.get(b)!.resize();
+    expect(cards[1].h).toBe(110);
+    const observer = observers.get(b)!;
+    renderer.disposeCardResources('b');
+    expect(observer.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('keeps blank cards at their explicitly sized height', () => {
+    const card: StickyCard = { id: 'blank', kind: 'sticky', blank: true, x: 0, y: 0, w: 180, h: 240, text: '', color: '#fff' };
+    const { renderer } = setup([card]);
+    expect(observers.has(renderer.cardEls.get(card.id)!)).toBe(false);
+    expect(renderer.getCardRect(card.id)!.h).toBe(240);
+  });
+});
 afterEach(async () => {
   for (const r of live.splice(0)) {
     try { await r.destroy(); } catch { /* a test may have torn it down already */ }

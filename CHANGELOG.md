@@ -2,6 +2,11 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.19
+
+### Fixed
+- Connection previews and arrows now align with sticky note anchors. Connections follow the note's actual height when text, fonts, or themes change, instead of using a stale saved height or the default card height.
+
 ## 1.4.16
 
 ### Fixed

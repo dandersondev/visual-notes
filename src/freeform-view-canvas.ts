@@ -228,6 +228,8 @@ export const canvasMethods = {
     this.tableGridResizeObs.delete(id);
     this.textCardResizeObs.get(id)?.disconnect();
     this.textCardResizeObs.delete(id);
+    this.stickyCardResizeObs.get(id)?.disconnect();
+    this.stickyCardResizeObs.delete(id);
   },
 
   bindCanvasEvents(this: FreeformRenderer): void {
