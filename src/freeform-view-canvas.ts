@@ -2930,7 +2930,9 @@ export const canvasMethods = {
     const isHl = this.penTool === 'highlighter';
     const palette = isHl ? HIGHLIGHT_COLORS : PEN_COLORS;
     const index = palette.indexOf(isHl ? this.currentHighlightColor : this.currentInkColor);
-    const color = palette[(index + direction + palette.length) % palette.length];
+    const nextIndex = index < 0 ? (direction === 1 ? 0 : palette.length - 1)
+      : (index + direction + palette.length) % palette.length;
+    const color = palette[nextIndex];
     if (isHl) this.currentHighlightColor = color; else this.currentInkColor = color;
     this.showPenColorPicker();
     this.outer.focus({ preventScroll: true });
@@ -3069,17 +3071,53 @@ export const canvasMethods = {
     // The colors an actual highlighter set comes in — fluoro yellow first.
     const palette = isHl ? HIGHLIGHT_COLORS : PEN_COLORS;
     const currentColor = isHl ? this.currentHighlightColor : this.currentInkColor;
+    const customRow = picker.createDiv('visual-notes-pen-picker-row visual-notes-pen-custom-row');
+    const customLabel = customRow.createEl('label', { cls: 'visual-notes-pen-custom-label' });
+    customLabel.createSpan({ text: 'Custom' });
+    const customColor = customLabel.createEl('input', {
+      cls: 'visual-notes-pen-custom-color',
+      attr: { type: 'color', 'aria-label': isHl ? 'Custom highlighter color' : 'Custom pen color' },
+    });
+    const hexInput = customRow.createEl('input', {
+      cls: 'visual-notes-pen-custom-hex',
+      attr: {
+        type: 'text', placeholder: '#RRGGBB', maxlength: '7', spellcheck: 'false',
+        'aria-label': isHl ? 'Highlighter color hex code' : 'Pen color hex code',
+      },
+    });
+    const syncColorControls = (color: string) => {
+      const isHex = /^#[\da-f]{6}$/i.test(color);
+      customColor.value = isHex ? color : (this.boardIsDark() ? '#ffffff' : '#000000');
+      hexInput.value = isHex ? color : '';
+      hexInput.removeAttribute('aria-invalid');
+      customRow.toggleClass('is-selected', !palette.includes(color));
+      for (const sw of swatchRow.querySelectorAll<HTMLElement>('.visual-notes-pen-swatch')) {
+        sw.toggleClass('is-selected', sw.dataset.color === color);
+      }
+    };
+    const selectColor = (color: string) => {
+      if (isHl) this.currentHighlightColor = color; else this.currentInkColor = color;
+      syncColorControls(color);
+    };
+    // Keep the picker mounted while the native color dialog sends live input.
+    customColor.addEventListener('input', () => selectColor(customColor.value));
+    customColor.addEventListener('change', () => selectColor(customColor.value));
+    hexInput.addEventListener('input', () => {
+      const value = hexInput.value.trim();
+      if (/^#[\da-f]{6}$/i.test(value)) selectColor(value.toLowerCase());
+      else hexInput.setAttribute('aria-invalid', 'true');
+    });
+    customRow.addEventListener('click', e => e.stopPropagation());
     for (const hex of palette) {
       const sw = swatchRow.createDiv('visual-notes-pen-swatch');
-      sw.style.backgroundColor = hex;
-      sw.toggleClass('is-selected', hex === currentColor);
+      sw.dataset.color = hex;
+      sw.setCssStyles({ backgroundColor: hex });
       sw.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (isHl) this.currentHighlightColor = hex; else this.currentInkColor = hex;
-        swatchRow.querySelectorAll<HTMLElement>('.visual-notes-pen-swatch').forEach(s => s.removeClass('is-selected'));
-        sw.addClass('is-selected');
+        selectColor(hex);
       });
     }
+    syncColorControls(currentColor);
 
     const widthRow = picker.createDiv('visual-notes-pen-picker-row');
     for (const [w, label] of PEN_WIDTHS) {

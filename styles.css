@@ -6847,6 +6847,39 @@ input.visual-notes-accent-pop-hex {
   border-color: var(--interactive-accent);
 }
 
+.visual-notes-pen-custom-row {
+  align-items: center;
+  border-radius: 4px;
+  padding: 3px;
+  border: 1px solid transparent;
+}
+.visual-notes-pen-custom-row.is-selected {
+  border-color: var(--interactive-accent);
+}
+.visual-notes-pen-custom-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.visual-notes-pen-custom-label input.visual-notes-pen-custom-color {
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  cursor: pointer;
+}
+.visual-notes-pen-custom-row input.visual-notes-pen-custom-hex {
+  width: 86px;
+  height: 26px;
+  padding: 3px 5px;
+  font-size: 12px;
+  font-family: var(--font-monospace);
+}
+.visual-notes-pen-custom-hex[aria-invalid="true"] {
+  border-color: var(--text-error);
+}
+
 .visual-notes-pen-width-btn {
   font-size: 11px;
   padding: 3px 8px;

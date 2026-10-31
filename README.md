@@ -126,6 +126,7 @@ Select any text in a sticky note, checklist, kanban item, or image caption to re
 - Full **undo/redo** support for every drawing action: **Ctrl/Cmd+Z** removes the last stroke, even within a grouped sketch; **Ctrl/Cmd+Shift+Z** or **Ctrl+Y** redoes it
 - Assign drawing hotkeys in **Settings → Hotkeys** by searching **Visual Notes: Drawing**: toggle drawing mode, select pen/highlighter/eraser, choose Thin/Medium/Thick or cycle thickness, cycle colours in either direction, and toggle straight lines. Use a modifier combination (for example **Ctrl+Alt+P**, or **Cmd+Option+P** on macOS) or a function key: Obsidian's recorder does not accept plain letters or Shift+letter. Commands apply to the active freeform board; selecting a tool enters drawing mode.
 - Hold **Shift** while drawing for a straight line, or enable the **ruler** in the drawing picker to keep straight lines on. Thickness is saved with each stroke; pen and highlighter keep separate colour selections.
+- Choose **Custom** in the drawing picker to select any pen or highlighter colour, or enter a six-digit hex code such as `#12abcd`. Preset swatches remain available; colour selections are kept while the board stays open.
 - **iPad + Apple Pencil note:** if quick, small strokes (like a fast "s" or "e") intermittently fail to appear, turn off **Scribble** in iPad Settings → Apple Pencil. Scribble intercepts fast Pencil strokes for handwriting-to-text before they ever reach the canvas — this is a system feature web-based apps cannot override.
 
 ### Storyboards

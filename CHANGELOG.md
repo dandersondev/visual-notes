@@ -2,6 +2,14 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.20
+
+### Added
+- Choose a custom pen or highlighter colour before drawing using the native colour picker or a six-digit hex code. Each tool keeps its own selection while the board stays open, and preset swatches remain available.
+
+### Fixed
+- Cycling colours from a custom colour now selects the first or last preset according to the cycle direction.
+
 ## 1.4.19
 
 ### Fixed

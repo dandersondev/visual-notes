@@ -2207,6 +2207,59 @@ describe('UI smoke: sticky/note text auto-contrast against background', () => {
   });
 });
 
+describe('UI smoke: custom drawing colors', () => {
+  it.each(['pen', 'highlighter'] as const)('draws new %s strokes in a custom color and retains it through tool changes', tool => {
+    const { renderer, board } = setup([]);
+    renderer.setPenTool(tool);
+    const picker = renderer.penColorPicker!;
+    const color = picker.querySelector<HTMLInputElement>('input[type="color"]')!;
+    color.value = '#12abcd';
+    color.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(renderer.penColorPicker).toBe(picker);
+    expect(picker.querySelector('.visual-notes-pen-custom-row')!.hasClass('is-selected')).toBe(true);
+    expect(picker.querySelectorAll('.visual-notes-pen-swatch.is-selected')).toHaveLength(0);
+    renderer.outer.dispatchEvent(pointer('pointerdown', 0, 0));
+    document.dispatchEvent(pointer('pointerup', 100, 100));
+    expect(board.drawings[0].color).toBe('#12abcd');
+    expect(board.drawings[0].opacity).toBe(tool === 'highlighter' ? 0.45 : undefined);
+    if (tool === 'pen') expect(renderer.currentHighlightColor).toBe(HIGHLIGHT_COLORS[0]);
+    else expect(renderer.currentInkColor).toBe(PEN_COLORS[0]);
+    renderer.setPenTool('eraser');
+    expect(renderer.penColorPicker!.querySelector('input[type="color"]')).toBeNull();
+    renderer.setPenTool(tool);
+    renderer.exitPenMode();
+    renderer.enterPenMode();
+    expect(renderer.penColorPicker!.querySelector<HTMLInputElement>('input[type="color"]')!.value).toBe('#12abcd');
+  });
+
+  it('accepts hex codes, ignores invalid input, and keeps presets usable', () => {
+    const { renderer } = setup([]);
+    renderer.enterPenMode();
+    const hex = renderer.penColorPicker!.querySelector<HTMLInputElement>('.visual-notes-pen-custom-hex')!;
+    hex.value = '#ABCDEF';
+    hex.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(renderer.currentInkColor).toBe('#abcdef');
+    hex.value = '#xyz';
+    hex.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(renderer.currentInkColor).toBe('#abcdef');
+    expect(hex.getAttribute('aria-invalid')).toBe('true');
+    const swatch = renderer.penColorPicker!.querySelectorAll<HTMLElement>('.visual-notes-pen-swatch')[1];
+    swatch.click();
+    expect(renderer.currentInkColor).toBe(PEN_COLORS[1]);
+    expect(hex.value).toBe(PEN_COLORS[1]);
+    expect(hex.hasAttribute('aria-invalid')).toBe(false);
+    expect(swatch.hasClass('is-selected')).toBe(true);
+    expect(renderer.penColorPicker!.querySelector('.visual-notes-pen-custom-row')!.hasClass('is-selected')).toBe(false);
+  });
+
+  it.each([1, -1] as const)('cycles from a custom color to the correct preset in direction %s', direction => {
+    const { renderer } = setup([]);
+    renderer.currentInkColor = '#12abcd';
+    renderer.cyclePenColor(direction);
+    expect(renderer.currentInkColor).toBe(direction === 1 ? PEN_COLORS[0] : PEN_COLORS.at(-1));
+  });
+});
+
 describe('UI smoke: pen default ink color follows the active theme', () => {
   afterEach(() => { document.body.removeClass('theme-dark'); });
 
