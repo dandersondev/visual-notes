@@ -4560,6 +4560,42 @@ input.visual-notes-accent-pop-hex {
 
 .visual-notes-notelink-preview > * { pointer-events: none; }
 
+.visual-notes-notelink-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 6px;
+  padding: 8px;
+  cursor: auto;
+  overflow-y: auto;
+}
+.visual-notes-notelink-editor-hint,
+.visual-notes-notelink-editor-status {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.visual-notes-notelink-editor-status:empty { display: none; }
+.visual-notes-notelink-editor-status.is-error { color: var(--text-error); }
+.visual-notes-notelink-editor textarea.visual-notes-notelink-editor-input {
+  flex: 1;
+  min-height: 60px;
+  width: 100%;
+  resize: none;
+  padding: 8px;
+  font-family: var(--font-monospace);
+  font-size: 13px;
+  line-height: 1.5;
+  user-select: text;
+  color: var(--text-normal);
+  background: var(--background-primary);
+}
+.visual-notes-notelink-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 /* Clipped-page chrome: cover image and source domain, shown above the
    article for a note whose properties carry a source URL. Deliberately the
    same shape as a bookmark card's — a page saved into the vault and a page

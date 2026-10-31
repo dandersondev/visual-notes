@@ -1602,7 +1602,10 @@ export const canvasMethods = {
         case 'tile':      await this.activateTile(card); break;
         case 'sticky':    this.editStickyInline(el, card); break;
         case 'text':      this.editTextInline(el, card); break;
-        case 'note-link': await this.activateNoteLink(card); break;
+        case 'note-link':
+          if (target.closest('.visual-notes-notelink-preview')) this.editNoteLinkInline(el, card);
+          else await this.activateNoteLink(card);
+          break;
         case 'image':
           if (target.closest('.visual-notes-image-caption-wrap')) break;
           this.openImageSource(card); break;

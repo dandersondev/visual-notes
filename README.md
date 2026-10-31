@@ -50,6 +50,7 @@ A place to think in space rather than in a list, the way you would in Milanote, 
 - **Board-level search** and a **tag/type filter** panel to narrow a busy board down
 - **Archive** cards you're not using instead of deleting them, and browse/restore from the archive any time
 - Drag notes from the file explorer onto the canvas to embed their content in a live preview that refreshes when the note changes. Canvases and folders create tiles; dragging another Visual Notes file in creates a nested board, exactly like nesting boards in Milanote
+- Double-click a note preview or click its pencil button to edit Markdown directly on the board. **Save** (or **Ctrl/Cmd+Enter**) updates the original vault note; **Cancel** leaves it unchanged. The open-in-tab button opens Obsidian's full note editor. Section previews edit the entire source note, including properties.
 
 ### Locking
 Kanban boards, kanban columns, and generic Columns each have a padlock toggle: a locked container can't have items dragged into or out of it, but its own cards can still be freely dragged and repositioned.

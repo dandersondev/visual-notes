@@ -194,7 +194,10 @@ export const cardsColumnMethods = {
       switch (child.kind) {
         case 'tile':      await this.activateTile(child); break;
         case 'sticky':    this.editStickyInline(childEl, child); break;
-        case 'note-link': await this.activateNoteLink(child); break;
+        case 'note-link':
+          if (target.closest('.visual-notes-notelink-preview')) this.editNoteLinkInline(childEl, child);
+          else await this.activateNoteLink(child);
+          break;
         case 'image':
           if (target.closest('.visual-notes-image-caption-wrap')) break;
           this.openImageSource(child); break;

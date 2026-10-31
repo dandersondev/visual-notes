@@ -16,6 +16,7 @@ import { nearestColorName, randomNamedColor, NamedColor } from './named-colors';
 import { TileModal } from './tile-modal';
 import { isCustomIconRef, resolveCustomIconSrc } from './custom-icons';
 import { TextFormatToolbar } from './text-format-toolbar';
+import { NoteCardEditor } from './note-card-editor';
 import { toggleBulletList } from './bullet-list';
 import { sortAssetFile, saveNewAsset } from './asset-manager';
 import {
@@ -64,6 +65,7 @@ declare module './freeform-view' {
     appendCommentReply(listEl: HTMLElement, card: CommentCard, reply: CommentReply): HTMLElement;
     appendCommentReplyGhost(listEl: HTMLElement, card: CommentCard): HTMLElement;
     renderNoteLinkContent(el: HTMLElement, card: NoteLinkCard): void;
+    editNoteLinkInline(el: HTMLElement, card: NoteLinkCard): void;
     renderSwatchContent(el: HTMLElement, card: SwatchCard): void;
     addSwatchAt(x: number, y: number): void;
     fileTypeIcon(ext: string): string;
@@ -886,6 +888,32 @@ export const cardsBasicMethods = {
     return row;
   },
 
+  editNoteLinkInline(this: FreeformRenderer, el: HTMLElement, card: NoteLinkCard): void {
+    const file = this.app.vault.getAbstractFileByPath(card.path);
+    if (!(file instanceof TFile)) { new Notice(`Note no longer exists: ${card.path}`); return; }
+    if (file.extension.toLowerCase() !== 'md') { void this.activateNoteLink(card); return; }
+    this.exitPenMode();
+    this.exitConnectMode();
+    const existing = this.noteCardEditors.get(card.id);
+    if (!existing || existing.file !== file) {
+      this.noteCardEditors.set(card.id, new NoteCardEditor(this.app, file, !!card.subpath));
+    }
+    if (card.displayMode !== 'preview'
+      || (card.w ?? 0) < NOTELINK_DEFAULT_W || (card.h ?? 0) < NOTELINK_DEFAULT_H) {
+      this.pushUndo();
+      card.displayMode = 'preview';
+      card.w = Math.max(card.w ?? NOTELINK_DEFAULT_W, NOTELINK_DEFAULT_W);
+      card.h = Math.max(card.h ?? NOTELINK_DEFAULT_H, NOTELINK_DEFAULT_H);
+      el.setCssStyles({
+        width: el.hasClass('visual-notes-column-child') ? '' : `${card.w}px`,
+        height: `${card.h}px`,
+      });
+      this.updateConnectionsForCard(card.id);
+      this.scheduleSave();
+    }
+    this.renderCardContent(el, card);
+  },
+
   renderNoteLinkContent(this: FreeformRenderer, el: HTMLElement, card: NoteLinkCard): void {
     el.addClass('visual-notes-freeform-notelink-card');
 
@@ -903,6 +931,41 @@ export const cardsBasicMethods = {
     const title = meta.title
       ?? (file ? file.name.replace(/\.md$/, '') : (card.path || 'Note Link'));
     titleBar.createDiv({ cls: 'visual-notes-notelink-title', text: title });
+
+    const editor = this.noteCardEditors.get(card.id);
+    // A deleted/replaced source must not hide an unsaved draft on refresh.
+    // Save still checks the original TFile identity before writing.
+    const activeEditor = editor?.file.path === card.path ? editor : undefined;
+    if (file instanceof TFile) {
+      if (file.extension.toLowerCase() === 'md' && !activeEditor) {
+        const editBtn = titleBar.createEl('button', {
+          cls: 'visual-notes-notelink-mode-btn',
+          attr: { 'aria-label': 'Edit note on board', title: 'Edit note on board' },
+        });
+        setIcon(editBtn, 'pencil');
+        editBtn.addEventListener('pointerdown', e => e.stopPropagation());
+        editBtn.addEventListener('click', e => {
+          e.stopPropagation(); this.editNoteLinkInline(el, card);
+        });
+      }
+      const openBtn = titleBar.createEl('button', {
+        cls: 'visual-notes-notelink-mode-btn',
+        attr: { 'aria-label': 'Open note in tab', title: 'Open note in tab' },
+      });
+      setIcon(openBtn, 'external-link');
+      openBtn.addEventListener('pointerdown', e => e.stopPropagation());
+      openBtn.addEventListener('click', e => { e.stopPropagation(); void this.activateNoteLink(card); });
+    }
+
+    if (activeEditor) {
+      activeEditor.mount(el, () => {
+        this.noteCardEditors.delete(card.id);
+        this.renderCardContent(el, card);
+        this.outer.focus({ preventScroll: true });
+      });
+      this.appendResizeHandles(el);
+      return;
+    }
 
     const modeBtn = titleBar.createEl('button', { cls: 'visual-notes-notelink-mode-btn' });
     modeBtn.setAttribute('title', card.displayMode === 'preview' ? 'Switch to title-only' : 'Switch to preview');

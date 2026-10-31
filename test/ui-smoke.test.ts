@@ -26,7 +26,7 @@ import { fakeApp } from './fake-app';
 import { FakeVault } from './fake-vault';
 import { Platform, Menu, MarkdownRenderer, TFile } from 'obsidian';
 import type {
-  VisualNotesFile, StickyCard, TileCard, TableCard, CommentCard,
+  VisualNotesFile, StickyCard, TileCard, TableCard, CommentCard, NoteLinkCard,
   CalloutCard, GroupCard, CalendarCard, ColumnCard, KanbanColumnCard,
   KanbanBoardCard, DrawingStroke, BookmarkCard, TextCard, Card,
 } from '../src/file-types';
@@ -1136,6 +1136,129 @@ describe('UI smoke: embedding dragged vault notes', () => {
     const { renderer, board } = setup([], [], 'bottom-right', vault);
     await renderer.dropVaultDraggableAt({ type: 'file', file }, 400, 300);
     expect(board.cards[0]).toMatchObject({ kind: 'tile', target: { kind: 'canvas', path: file.path } });
+  });
+});
+
+describe('UI smoke: editing source notes on the board', () => {
+  async function editorFor(content = '---\ntags: [keep]\n---\n# Original', subpath?: string) {
+    const vault = new FakeVault();
+    const file = vault.putText('Notes/Example.md', content);
+    const card: NoteLinkCard = {
+      id: 'note', kind: 'note-link', path: file.path, displayMode: 'preview',
+      x: 0, y: 0, w: 320, h: 360, subpath,
+    };
+    const state = setup([card], [], 'bottom-right', vault);
+    const preview = state.container.querySelector<HTMLElement>('.visual-notes-notelink-preview')!;
+    preview.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    const input = state.container.querySelector<HTMLTextAreaElement>('.visual-notes-notelink-editor-input')!;
+    expect(input).not.toBeNull();
+    await vi.waitFor(() => expect(input.disabled).toBe(false));
+    const button = (text: string) => Array.from(state.container.querySelectorAll<HTMLButtonElement>('.visual-notes-notelink-editor-actions button'))
+      .find(b => b.textContent === text)!;
+    return { ...state, vault, file, card, input, button };
+  }
+
+  it('edits the original Markdown and preserves properties and file references', async () => {
+    const { renderer, board, vault, container, input, button } = await editorFor();
+    expect(input.value).toBe('---\ntags: [keep]\n---\n# Original');
+    const undoCount = renderer.undoStack.length;
+    input.value = input.value.replace('# Original', '# Edited\n[[Another note]]');
+    button('Save').click();
+    await vi.waitFor(() => expect(container.querySelector('.visual-notes-notelink-editor')).toBeNull());
+    expect(vault.textAt('Notes/Example.md')).toBe('---\ntags: [keep]\n---\n# Edited\n[[Another note]]');
+    await vi.waitFor(() => expect(container.querySelector('.visual-notes-notelink-preview')!.textContent).toContain('# Edited'));
+    expect(renderer.undoStack).toHaveLength(undoCount);
+    expect(visualNotesToCanvas(board).nodes[0]).toMatchObject({ type: 'file', file: 'Notes/Example.md' });
+  });
+
+  it('cancels without modifying the source note', async () => {
+    const { vault, input, button, container } = await editorFor('Original');
+    input.value = 'Do not save';
+    button('Cancel').click();
+    expect(vault.textAt('Notes/Example.md')).toBe('Original');
+    expect(container.querySelector('.visual-notes-notelink-editor')).toBeNull();
+  });
+
+  it('rejects concurrent changes and keeps the draft available', async () => {
+    const { renderer, file, vault, input, button, container } = await editorFor('Original');
+    input.value = 'My draft';
+    await renderer.app.vault.modify(file as TFile, 'Edited in another pane');
+    button('Save').click();
+    await vi.waitFor(() => expect(container.querySelector('.visual-notes-notelink-editor-status')!.textContent).toContain('changed elsewhere'));
+    expect(vault.textAt(file.path)).toBe('Edited in another pane');
+    expect(input.value).toBe('My draft');
+    expect(input.readOnly).toBe(false);
+    expect(button('Save').disabled).toBe(false);
+  });
+
+  it('keeps drafts after a write failure and allows retrying', async () => {
+    const { renderer, vault, input, button, container } = await editorFor('Original');
+    const write = vi.spyOn(renderer.app.vault, 'process').mockRejectedValueOnce(new Error('Disk unavailable'));
+    input.value = 'Retry this';
+    button('Save').click();
+    await vi.waitFor(() => expect(container.querySelector('.is-error')!.textContent).toContain('Could not save'));
+    expect(input.value).toBe('Retry this');
+    button('Save').click();
+    await vi.waitFor(() => expect(vault.textAt('Notes/Example.md')).toBe('Retry this'));
+    write.mockRestore();
+  });
+
+  it('retains the same editor and draft when a card refreshes', async () => {
+    const { renderer, card, container, input } = await editorFor();
+    input.value = 'Unsaved draft';
+    renderer.refreshCardEl(card.id);
+    expect(container.querySelector('.visual-notes-notelink-editor-input')).toBe(input);
+    expect(input.value).toBe('Unsaved draft');
+  });
+
+  it('opens compact title cards from the pencil button with room for editing', async () => {
+    const { renderer, card, button, container } = await editorFor();
+    button('Cancel').click();
+    card.displayMode = 'title-only';
+    card.h = 52;
+    renderer.refreshCardEl(card.id);
+    container.querySelector<HTMLButtonElement>('[aria-label="Edit note on board"]')!.click();
+    expect(card.displayMode).toBe('preview');
+    expect(card.h).toBeGreaterThanOrEqual(240);
+    await vi.waitFor(() => expect(container.querySelector<HTMLTextAreaElement>('.visual-notes-notelink-editor-input')!.disabled).toBe(false));
+  });
+
+  it('does not recreate or overwrite a deleted source file', async () => {
+    const { renderer, card, vault, input, button, container } = await editorFor('Original');
+    input.value = 'Keep my draft';
+    vault.remove('Notes/Example.md');
+    button('Save').click();
+    await vi.waitFor(() => expect(container.querySelector('.is-error')!.textContent).toContain('Could not save'));
+    expect(vault.has('Notes/Example.md')).toBe(false);
+    expect(input.value).toBe('Keep my draft');
+    renderer.refreshCardEl(card.id);
+    expect(container.querySelector('.visual-notes-notelink-editor-input')).toBe(input);
+    expect(input.value).toBe('Keep my draft');
+  });
+
+  it('leaves text selection, wheel scrolling and undo inside the editor', async () => {
+    const { renderer, input, vault, container } = await editorFor('Original');
+    const undo = vi.spyOn(renderer, 'undo');
+    const viewport = { ...renderer.vp };
+    input.dispatchEvent(pointer('pointerdown', 5, 5));
+    input.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 100 }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'z', ctrlKey: true }));
+    expect(renderer.vp).toEqual(viewport);
+    expect(undo).not.toHaveBeenCalled();
+    expect(vault.textAt('Notes/Example.md')).toBe('Original');
+    input.value = 'Keyboard save';
+    input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter', ctrlKey: true }));
+    await vi.waitFor(() => expect(container.querySelector('.visual-notes-notelink-editor')).toBeNull());
+    expect(vault.textAt('Notes/Example.md')).toBe('Keyboard save');
+    undo.mockRestore();
+  });
+
+  it('clearly edits the full source for a section embed and preserves untouched sections', async () => {
+    const { input, container, button, vault } = await editorFor('# One\nKeep this\n# Two\nEdit this', '#Two');
+    expect(container.querySelector('.visual-notes-notelink-editor-hint')!.textContent).toContain('entire note');
+    input.value = input.value.replace('Edit this', 'Updated');
+    button('Save').click();
+    await vi.waitFor(() => expect(vault.textAt('Notes/Example.md')).toBe('# One\nKeep this\n# Two\nUpdated'));
   });
 });
 

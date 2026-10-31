@@ -26,6 +26,7 @@ import {
 import { canvasMethods } from './freeform-view-canvas';
 import { PenDrawOptions, DEFAULT_PEN_DRAW_OPTIONS, PenOptionsPanel } from './pen-options-panel';
 import { cardsBasicMethods } from './freeform-view-cards-basic';
+import { NoteCardEditor } from './note-card-editor';
 import { cardsTableMethods } from './freeform-view-cards-table';
 import { cardsKanbanMethods } from './freeform-view-cards-kanban';
 import { cardsColumnMethods } from './freeform-view-cards-column';
@@ -234,6 +235,8 @@ export class FreeformRenderer extends Component {
   textCardResizeObs = new Map<string, ResizeObserver>();
   // Regular stickies size to their text; keep connection geometry in step.
   stickyCardResizeObs = new Map<string, ResizeObserver>();
+  // Keep unsaved note text through card refreshes, board undo and theme changes.
+  noteCardEditors = new Map<string, NoteCardEditor>();
   // Every permanent card removal (delete, archive, trash-drop, absorb into a
   // column) must go through here so a table's zoom-layer ResizeObserver is
   // disconnected instead of leaking on the now-detached DOM node forever.
