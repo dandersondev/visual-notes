@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.22
+
+### Fixed
+- Note-card action icons no longer disappear under Obsidian's iPad/tablet button padding. Mobile controls have larger tap targets, and preview text explicitly follows the theme's card text colour.
+- Note previews show loading, empty-note, and load-error messages instead of an unexplained blank card. Failed loads can be retried with Reload, and a slow earlier read no longer replaces a newer reload.
+
 ## 1.4.21
 
 ### Added

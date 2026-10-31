@@ -1139,6 +1139,70 @@ describe('UI smoke: embedding dragged vault notes', () => {
   });
 });
 
+describe('UI smoke: tablet note previews', () => {
+  beforeEach(() => { document.body.addClass('is-mobile', 'is-tablet'); });
+  afterEach(() => { document.body.removeClass('is-mobile', 'is-tablet'); vi.restoreAllMocks(); });
+
+  it('excludes note action buttons from Obsidian tablet text-button padding', () => {
+    const vault = new FakeVault();
+    vault.putText('Note.md', '# Note');
+    const { container } = setup([{
+      id: 'note', kind: 'note-link', path: 'Note.md', displayMode: 'preview',
+    }], [], 'bottom-right', vault);
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('.visual-notes-notelink-mode-btn'));
+    expect(buttons).toHaveLength(4);
+    // This host rule applies 20px of horizontal padding on each side,
+    // widening the button and shrinking its SVG to zero on an iPad.
+    for (const button of buttons) {
+      expect(button.matches('.is-tablet button:not(.clickable-icon)')).toBe(false);
+      expect(button.getAttribute('aria-label')).toBeTruthy();
+    }
+  });
+
+  it.each(['', '---\ntags: [example]\n---\n'])('explains empty notes without modifying their source', async content => {
+    const vault = new FakeVault();
+    vault.putText('Note.md', content);
+    const { container } = setup([{
+      id: 'note', kind: 'note-link', path: 'Note.md', displayMode: 'preview',
+    }], [], 'bottom-right', vault);
+    await vi.waitFor(() => expect(container.querySelector('.visual-notes-notelink-preview')!.textContent).toContain('This note is empty'));
+    container.querySelector<HTMLButtonElement>('[aria-label="Edit note on board"]')!.click();
+    await vi.waitFor(() => expect(container.querySelector<HTMLTextAreaElement>('textarea')!.disabled).toBe(false));
+    expect(container.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe(content);
+    expect(vault.textAt('Note.md')).toBe(content);
+  });
+
+  it.each(['read', 'render'])('shows a %s failure and allows reloading', async failure => {
+    const vault = new FakeVault();
+    const file = vault.putText('Note.md', '# Loaded successfully');
+    const { renderer, container } = setup([], [], 'bottom-right', vault);
+    if (failure === 'read') vi.spyOn(renderer.app.vault, 'cachedRead').mockRejectedValueOnce(new Error('Unavailable'));
+    else vi.spyOn(MarkdownRenderer, 'render').mockRejectedValueOnce(new Error('Render failed'));
+    await renderer.dropVaultDraggableAt({ type: 'file', file }, 100, 100);
+    const preview = container.querySelector<HTMLElement>('.visual-notes-notelink-preview')!;
+    await vi.waitFor(() => expect(preview.textContent).toContain('Could not load this note'));
+    container.querySelector<HTMLButtonElement>('[aria-label="Reload note content"]')!.click();
+    await vi.waitFor(() => expect(preview.textContent).toBe('# Loaded successfully'));
+    expect(vault.textAt('Note.md')).toBe('# Loaded successfully');
+  });
+
+  it('does not let a slow initial read overwrite a newer reload', async () => {
+    const vault = new FakeVault();
+    const file = vault.putText('Note.md', 'New content');
+    const { renderer, container } = setup([], [], 'bottom-right', vault);
+    let finishRead!: (text: string) => void;
+    vi.spyOn(renderer.app.vault, 'cachedRead').mockReturnValueOnce(new Promise(resolve => { finishRead = resolve; }));
+    await renderer.dropVaultDraggableAt({ type: 'file', file }, 100, 100);
+    const preview = container.querySelector<HTMLElement>('.visual-notes-notelink-preview')!;
+    expect(preview.textContent).toBe('Loading note…');
+    container.querySelector<HTMLButtonElement>('[aria-label="Reload note content"]')!.click();
+    await vi.waitFor(() => expect(preview.textContent).toBe('New content'));
+    finishRead('Old content');
+    await Promise.resolve();
+    expect(preview.textContent).toBe('New content');
+  });
+});
+
 describe('UI smoke: editing source notes on the board', () => {
   async function editorFor(content = '---\ntags: [keep]\n---\n# Original', subpath?: string) {
     const vault = new FakeVault();

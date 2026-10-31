@@ -939,7 +939,7 @@ export const cardsBasicMethods = {
     if (file instanceof TFile) {
       if (file.extension.toLowerCase() === 'md' && !activeEditor) {
         const editBtn = titleBar.createEl('button', {
-          cls: 'visual-notes-notelink-mode-btn',
+          cls: 'visual-notes-notelink-mode-btn clickable-icon',
           attr: { 'aria-label': 'Edit note on board', title: 'Edit note on board' },
         });
         setIcon(editBtn, 'pencil');
@@ -949,7 +949,7 @@ export const cardsBasicMethods = {
         });
       }
       const openBtn = titleBar.createEl('button', {
-        cls: 'visual-notes-notelink-mode-btn',
+        cls: 'visual-notes-notelink-mode-btn clickable-icon',
         attr: { 'aria-label': 'Open note in tab', title: 'Open note in tab' },
       });
       setIcon(openBtn, 'external-link');
@@ -967,8 +967,10 @@ export const cardsBasicMethods = {
       return;
     }
 
-    const modeBtn = titleBar.createEl('button', { cls: 'visual-notes-notelink-mode-btn' });
-    modeBtn.setAttribute('title', card.displayMode === 'preview' ? 'Switch to title-only' : 'Switch to preview');
+    const modeBtn = titleBar.createEl('button', { cls: 'visual-notes-notelink-mode-btn clickable-icon' });
+    const modeLabel = card.displayMode === 'preview' ? 'Switch to title-only' : 'Switch to preview';
+    modeBtn.setAttribute('title', modeLabel);
+    modeBtn.setAttribute('aria-label', modeLabel);
     setIcon(modeBtn, card.displayMode === 'preview' ? 'minimize-2' : 'eye');
     modeBtn.addEventListener('click', (e) => {
       e.stopPropagation(); e.preventDefault(); this.pushUndo();
@@ -1010,29 +1012,46 @@ export const cardsBasicMethods = {
       }
 
       const previewEl = el.createDiv('visual-notes-notelink-preview');
-      const loadPreview = (f: TFile) => {
+      let loadId = 0;
+      const loadPreview = async (f: TFile) => {
         if (!el.contains(previewEl)) return;
-        if (card.subpath) {
-          previewEl.empty();
-          void MarkdownRenderer.render(this.app, `![[${card.path}${card.subpath}]]`, previewEl, this.file.path, this);
-          return;
-        }
-        void this.app.vault.cachedRead(f).then(content => {
-          if (!el.contains(previewEl)) return;
-          previewEl.empty();
+        const requestId = ++loadId;
+        previewEl.empty();
+        previewEl.createDiv({ cls: 'visual-notes-notelink-preview-status', text: 'Loading note…', attr: { role: 'status' } });
+        try {
           // Without the strip, a clipped note opens with its raw YAML — the
           // very properties rendered as chrome just above.
-          void MarkdownRenderer.render(this.app, stripFrontmatter(content), previewEl, f.path, this);
-        });
+          const content = card.subpath ? `![[${card.path}${card.subpath}]]`
+            : stripFrontmatter(await this.app.vault.cachedRead(f));
+          if (requestId !== loadId || !el.contains(previewEl)) return;
+          previewEl.empty();
+          if (!content.trim()) {
+            previewEl.createDiv({
+              cls: 'visual-notes-notelink-preview-status',
+              text: 'This note is empty. Tap the pencil button to start writing.',
+            });
+          } else {
+            await MarkdownRenderer.render(this.app, content, previewEl, card.subpath ? this.file.path : f.path, this);
+          }
+        } catch {
+          if (requestId !== loadId || !el.contains(previewEl)) return;
+          previewEl.empty();
+          previewEl.createDiv({
+            cls: 'visual-notes-notelink-preview-status is-error',
+            text: 'Could not load this note. Try reloading it or open it in a tab.',
+            attr: { role: 'status' },
+          });
+        }
       };
-      loadPreview(file);
+      void loadPreview(file);
 
-      const reloadBtn = titleBar.createEl('button', { cls: 'visual-notes-notelink-mode-btn' });
+      const reloadBtn = titleBar.createEl('button', { cls: 'visual-notes-notelink-mode-btn clickable-icon' });
       reloadBtn.setAttribute('title', 'Reload note content'); setIcon(reloadBtn, 'refresh-cw');
-      reloadBtn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); loadPreview(file); });
+      reloadBtn.setAttribute('aria-label', 'Reload note content');
+      reloadBtn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); void loadPreview(file); });
 
       this.registerEvent(this.app.vault.on('modify', (modified) => {
-        if (modified instanceof TFile && modified.path === card.path) loadPreview(modified);
+        if (modified instanceof TFile && modified.path === card.path) void loadPreview(modified);
       }));
     }
 

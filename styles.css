@@ -4546,7 +4546,13 @@ input.visual-notes-accent-pop-hex {
   color: var(--interactive-accent);
 }
 
-.visual-notes-notelink-mode-btn svg { width: 14px; height: 14px; }
+.visual-notes-notelink-mode-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+/* clickable-icon opts out of Obsidian's wide tablet button padding. */
+.is-mobile .visual-notes-notelink-mode-btn {
+  width: 32px;
+  height: 32px;
+}
 
 .visual-notes-notelink-preview {
   flex: 1;
@@ -4555,10 +4561,17 @@ input.visual-notes-accent-pop-hex {
   font-size: calc(13px * var(--vn-text-mult, 1));
   line-height: 1.5;
   min-height: 0;
+  color: var(--visual-notes-card-text);
   background: var(--visual-notes-card-bg);
 }
 
 .visual-notes-notelink-preview > * { pointer-events: none; }
+
+.visual-notes-notelink-preview-status {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.visual-notes-notelink-preview-status.is-error { color: var(--text-error); }
 
 .visual-notes-notelink-editor {
   display: flex;
