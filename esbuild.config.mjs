@@ -47,6 +47,8 @@ const context = await esbuild.context({
   target: "es2018",
   logLevel: "info",
   sourcemap: prod ? false : "inline",
+  // Reduce release downloads without renaming identifiers used in error reports.
+  minifyWhitespace: prod,
   treeShaking: true,
   outfile: "main.js",
   // Bundled UI images live in assets/ and get imported directly in source

@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Visual Notes.
 
+## 1.4.23
+
+### Improved
+- Reduced the production JavaScript download by removing unnecessary whitespace while retaining identifier names for error reports. Development builds remain readable.
+- Published fresh versioned release files for installation retries. The installation failure reported in #43 remains under investigation; this release does not claim a confirmed fix.
+
 ## 1.4.22
 
 ### Fixed
